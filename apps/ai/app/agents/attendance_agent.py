@@ -1,0 +1,1 @@
+"""Attendance request agent placeholder."""

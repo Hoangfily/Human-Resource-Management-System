@@ -1,0 +1,1 @@
+"""Route user intent to a domain agent after policy and identity context is available."""

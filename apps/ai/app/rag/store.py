@@ -1,0 +1,1 @@
+"""Policy vector-store integration placeholder."""
