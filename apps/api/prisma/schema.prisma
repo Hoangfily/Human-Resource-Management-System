@@ -17,6 +17,12 @@ enum Role {
   ADMIN
 }
 
+enum EmployeeStatus {
+  PROBATION
+  ACTIVE
+  RESIGNED
+}
+
 enum RequestType {
   LEAVE
   OVERTIME
@@ -63,11 +69,25 @@ model Position {
   updatedAt   DateTime   @updatedAt
 }
 
+model ShiftTemplate {
+  id        String     @id @default(uuid())
+  name      String     @unique // e.g., "Morning Shift"
+  startTime String     // e.g., "08:00"
+  endTime   String     // e.g., "17:00"
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
 model Employee {
   id           String   @id @default(uuid())
   email        String   @unique
   fullName     String
+  phone        String?
+  avatarUrl    String?
   role         Role     @default(EMPLOYEE)
+  status       EmployeeStatus @default(ACTIVE)
+  joinDate     DateTime?
   
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
@@ -78,6 +98,9 @@ model Employee {
   managerId    String?
   manager      Employee?   @relation("EmployeeToManager", fields: [managerId], references: [id])
   subordinates Employee[]  @relation("EmployeeToManager")
+
+  defaultShiftId String?
+  defaultShift   ShiftTemplate? @relation(fields: [defaultShiftId], references: [id])
 
   // Relations
   requests           Request[]          @relation("RequestOwner")
@@ -111,6 +134,7 @@ model Request {
   type           RequestType
   status         RequestStatus @default(DRAFT)
   payload        Json
+  attachments    String[]      @default([]) // URLs to attached files
   idempotencyKey String?       @unique
 
   approvals      Approval[]
@@ -180,6 +204,15 @@ model Schedule {
 // ------------------------------------------------------
 // AI DOMAIN
 // ------------------------------------------------------
+model CompanyPolicy {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  lastUpdated DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model AgentTrace {
   id              String   @id @default(uuid())
   requestId       String?
