@@ -15,6 +15,78 @@ Base path: `/api/v1`. JSON requests and responses use UTF-8. Error responses use
 | POST | `/requests/:id/decision` | Approve or reject with reason |
 | POST | `/agent/chat` | Proxy a chat turn to the AI service |
 
+## Payload Schemas (JSON Mẫu)
+
+Dưới đây là cấu trúc dữ liệu JSON chính xác mà Frontend sẽ gửi lên (Request) và Backend sẽ trả về (Response) cho các Endpoint quan trọng.
+
+### 1. GET `/employees/me`
+Trả về thông tin của nhân viên đang đăng nhập.
+**Response (200 OK):**
+```json
+{
+  "id": "uuid",
+  "email": "employee@company.com",
+  "fullName": "Nguyen Van A",
+  "role": "EMPLOYEE",
+  "departmentId": "uuid",
+  "positionId": "uuid",
+  "managerId": "uuid"
+}
+```
+
+### 2. GET `/leave/balance`
+Lấy số dư quỹ phép của nhân viên hiện tại (để biết còn bao nhiêu ngày nghỉ).
+**Response (200 OK):**
+```json
+{
+  "balances": [
+    {
+      "leaveTypeId": "uuid",
+      "leaveTypeCode": "ANNUAL",
+      "totalDays": 12,
+      "usedDays": 2,
+      "availableDays": 10
+    }
+  ]
+}
+```
+
+### 3. POST `/requests`
+Tạo một yêu cầu mới (ví dụ: Tạo đơn xin nghỉ phép).
+**Request Body:**
+```json
+{
+  "type": "LEAVE",
+  "idempotencyKey": "unique-string-to-prevent-duplicate",
+  "payload": {
+    "startDate": "2024-05-10T00:00:00Z",
+    "endDate": "2024-05-12T00:00:00Z",
+    "leaveTypeId": "uuid-of-annual-leave",
+    "reason": "Nghỉ đi du lịch"
+  }
+}
+```
+**Response (201 Created):**
+```json
+{
+  "id": "request-uuid",
+  "type": "LEAVE",
+  "status": "DRAFT",
+  "createdAt": "2024-05-01T10:00:00Z"
+}
+```
+
+### 4. POST `/requests/:id/decision`
+Dành cho Quản lý / HR gọi để Duyệt hoặc Từ chối đơn.
+**Request Body:**
+```json
+{
+  "status": "APPROVED", 
+  "reason": "Đồng ý cho nghỉ"
+}
+```
+*(Lưu ý: trường `status` ở đây chỉ được nhận `APPROVED` hoặc `REJECTED`)*
+
 ## Request conventions
 
 - Authenticated endpoints use `Authorization: Bearer <access-token>`.

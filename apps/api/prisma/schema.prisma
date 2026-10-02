@@ -7,27 +7,201 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------
+enum Role {
+  EMPLOYEE
+  MANAGER
+  HR
+  ADMIN
+}
+
+enum RequestType {
+  LEAVE
+  OVERTIME
+  ATTENDANCE_EXPLANATION
+}
+
 enum RequestStatus {
   DRAFT
   PENDING
   APPROVED
   REJECTED
   CANCELLED
+  ESCALATED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AttendanceEventType {
+  CLOCK_IN
+  CLOCK_OUT
+}
+
+// ------------------------------------------------------
+// IDENTITY DOMAIN
+// ------------------------------------------------------
+model Department {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  description String?
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Position {
+  id          String     @id @default(uuid())
+  title       String     @unique
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 }
 
 model Employee {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  fullName  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid())
+  email        String   @unique
+  fullName     String
+  role         Role     @default(EMPLOYEE)
+  
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  
+  positionId   String?
+  position     Position?   @relation(fields: [positionId], references: [id])
+
+  managerId    String?
+  manager      Employee?   @relation("EmployeeToManager", fields: [managerId], references: [id])
+  subordinates Employee[]  @relation("EmployeeToManager")
+
+  // Relations
+  requests           Request[]          @relation("RequestOwner")
+  sessions           RefreshSession[]
+  leaveBalances      LeaveBalance[]
+  attendanceEvents   AttendanceEvent[]
+  schedules          Schedule[]
+  approvalAssignments Approval[]        @relation("Approver")
+  auditLogs          AuditLog[]         @relation("AuditActor")
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
+model RefreshSession {
+  id           String   @id @default(uuid())
+  token        String   @unique
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+// ------------------------------------------------------
+// REQUESTS & APPROVALS DOMAIN
+// ------------------------------------------------------
 model Request {
-  id        String        @id @default(uuid())
-  type      String
-  status    RequestStatus @default(DRAFT)
-  payload   Json
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id             String        @id @default(uuid())
+  employeeId     String
+  employee       Employee      @relation("RequestOwner", fields: [employeeId], references: [id])
+  type           RequestType
+  status         RequestStatus @default(DRAFT)
+  payload        Json
+  idempotencyKey String?       @unique
+
+  approvals      Approval[]
+  agentTraces    AgentTrace[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Approval {
+  id           String         @id @default(uuid())
+  requestId    String
+  request      Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approverId   String
+  approver     Employee       @relation("Approver", fields: [approverId], references: [id])
+  status       ApprovalStatus @default(PENDING)
+  reason       String?
+  
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+// ------------------------------------------------------
+// HR DOMAIN (Leave, Attendance, Schedule)
+// ------------------------------------------------------
+model LeaveType {
+  id          String         @id @default(uuid())
+  code        String         @unique // e.g., ANNUAL, SICK, UNPAID
+  name        String
+  balances    LeaveBalance[]
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  year        Int
+  totalDays   Float     // Total allocated
+  usedDays    Float     @default(0)
+
+  @@unique([employeeId, leaveTypeId, year])
+}
+
+model AttendanceEvent {
+  id          String              @id @default(uuid())
+  employeeId  String
+  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type        AttendanceEventType
+  timestamp   DateTime            @default(now())
+  location    String?
+  deviceInfo  String?
+}
+
+model Schedule {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime
+  shiftStart  DateTime
+  shiftEnd    DateTime
+
+  @@unique([employeeId, date])
+}
+
+// ------------------------------------------------------
+// AI DOMAIN
+// ------------------------------------------------------
+model AgentTrace {
+  id              String   @id @default(uuid())
+  requestId       String?
+  request         Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  toolCalls       Json     // Log of tools the AI called
+  policyReferences Json?   // Which policy documents the AI cited
+  
+  createdAt       DateTime @default(now())
+}
+
+// ------------------------------------------------------
+// AUDIT DOMAIN
+// ------------------------------------------------------
+model AuditLog {
+  id            String    @id @default(uuid())
+  actorId       String?   // Could be null if system action
+  actor         Employee? @relation("AuditActor", fields: [actorId], references: [id])
+  action        String    // e.g., "CREATE_REQUEST", "APPROVE_REQUEST"
+  entityType    String    // e.g., "Request"
+  entityId      String
+  payload       Json?
+  correlationId String?   // To trace requests across microservices/UI
+  
+  timestamp     DateTime  @default(now())
 }

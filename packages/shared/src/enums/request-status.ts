@@ -4,4 +4,5 @@ export enum RequestStatus {
   Approved = 'APPROVED',
   Rejected = 'REJECTED',
   Cancelled = 'CANCELLED',
+  Escalated = 'ESCALATED',
 }
