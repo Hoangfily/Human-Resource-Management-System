@@ -7,27 +7,326 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------
+enum Role {
+  EMPLOYEE
+  MANAGER
+  HR
+  ADMIN
+}
+
+enum EmployeeStatus {
+  PROBATION
+  ACTIVE
+  RESIGNED
+}
+
+enum RequestType {
+  LEAVE
+  OVERTIME
+  ATTENDANCE_EXPLANATION
+  SHIFT_CHANGE
+}
+
 enum RequestStatus {
   DRAFT
   PENDING
   APPROVED
   REJECTED
   CANCELLED
+  ESCALATED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED // AI/SYSTEM decision overridden by a human
+}
+
+enum AttendanceEventType {
+  CLOCK_IN
+  CLOCK_OUT
+}
+
+enum ActorType {
+  HUMAN
+  AI
+  SYSTEM
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AutonomyLevel {
+  SUGGEST_ONLY
+  AUTO_APPROVE_LOW_RISK
+  AUTO_DECIDE_LOW_RISK
+}
+
+// ------------------------------------------------------
+// IDENTITY DOMAIN
+// ------------------------------------------------------
+model Department {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  description String?
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Position {
+  id          String     @id @default(uuid())
+  title       String     @unique
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model ShiftTemplate {
+  id        String     @id @default(uuid())
+  name      String     @unique // e.g., "Morning Shift"
+  startTime String     // e.g., "08:00"
+  endTime   String     // e.g., "17:00"
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Employee {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  fullName  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid())
+  email        String   @unique
+  fullName     String
+  phone        String?
+  avatarUrl    String?
+  role         Role     @default(EMPLOYEE)
+  status       EmployeeStatus @default(ACTIVE)
+  joinDate     DateTime?
+  
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  
+  positionId   String?
+  position     Position?   @relation(fields: [positionId], references: [id])
+
+  managerId    String?
+  manager      Employee?   @relation("EmployeeToManager", fields: [managerId], references: [id])
+  subordinates Employee[]  @relation("EmployeeToManager")
+
+  defaultShiftId String?
+  defaultShift   ShiftTemplate? @relation(fields: [defaultShiftId], references: [id])
+
+  // Relations
+  requests           Request[]          @relation("RequestOwner")
+  createdRequests    Request[]          @relation("RequestCreator")
+  sessions           RefreshSession[]
+  leaveBalances      LeaveBalance[]
+  attendanceEvents   AttendanceEvent[]
+  schedules          Schedule[]
+  approvalAssignments Approval[]        @relation("Approver")
+  revokedApprovals   Approval[]         @relation("ApprovalRevoker")
+  statusChanges      RequestStatusHistory[]
+  autonomyConfigUpdates AutonomyConfig[]
+  auditLogs          AuditLog[]         @relation("AuditActor")
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
+model RefreshSession {
+  id           String   @id @default(uuid())
+  token        String   @unique
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+// ------------------------------------------------------
+// REQUESTS & APPROVALS DOMAIN
+// ------------------------------------------------------
 model Request {
-  id        String        @id @default(uuid())
-  type      String
-  status    RequestStatus @default(DRAFT)
-  payload   Json
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id             String        @id @default(uuid())
+  employeeId     String
+  employee       Employee      @relation("RequestOwner", fields: [employeeId], references: [id])
+  createdById    String?       // Human creator, or the user the AI acted on behalf of
+  createdBy      Employee?     @relation("RequestCreator", fields: [createdById], references: [id])
+  createdByType  ActorType     @default(HUMAN)
+  type           RequestType
+  status         RequestStatus @default(DRAFT)
+  payload        Json
+  computed       Json?         // Server-computed values, e.g. { daysRequested }
+  attachments    String[]      @default([]) // URLs to attached files
+  idempotencyKey String?       @unique
+  riskLevel      RiskLevel?
+  escalationReason String?
+  submittedAt    DateTime?
+
+  approvals      Approval[]
+  statusHistory  RequestStatusHistory[]
+  agentTraces    AgentTrace[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Approval {
+  id           String         @id @default(uuid())
+  requestId    String
+  request      Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  deciderType  ActorType      @default(HUMAN)
+  approverId   String?        // null when deciderType is AI or SYSTEM
+  approver     Employee?      @relation("Approver", fields: [approverId], references: [id])
+  step         Int            @default(1) // 1 = manager, 2 = HR second step
+  status       ApprovalStatus @default(PENDING)
+  reason       String?
+  riskLevel    RiskLevel?     // AI decisions
+  confidence   Float?         // AI decisions, 0..1
+  policyVersion String?
+  agentTraceId String?
+  agentTrace   AgentTrace?    @relation(fields: [agentTraceId], references: [id])
+  decidedAt    DateTime?
+
+  revokedById  String?
+  revokedBy    Employee?      @relation("ApprovalRevoker", fields: [revokedById], references: [id])
+  revokedAt    DateTime?
+  revokeReason String?
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([requestId])
+  @@index([approverId, status])
+}
+
+model RequestStatusHistory {
+  id         String         @id @default(uuid())
+  requestId  String
+  request    Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fromStatus RequestStatus?
+  toStatus   RequestStatus
+  actorType  ActorType
+  actorId    String?
+  actor      Employee?      @relation(fields: [actorId], references: [id])
+  reason     String?
+  createdAt  DateTime       @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+// ------------------------------------------------------
+// HR DOMAIN (Leave, Attendance, Schedule)
+// ------------------------------------------------------
+model LeaveType {
+  id          String         @id @default(uuid())
+  code        String         @unique // e.g., ANNUAL, SICK, UNPAID
+  name        String
+  balances    LeaveBalance[]
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  year        Int
+  totalDays   Float     // Total allocated
+  usedDays    Float     @default(0)
+  pendingDays Float     @default(0) // Reserved by PENDING/ESCALATED requests
+
+  @@unique([employeeId, leaveTypeId, year])
+}
+
+model AttendanceEvent {
+  id          String              @id @default(uuid())
+  employeeId  String
+  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type        AttendanceEventType
+  timestamp   DateTime            @default(now())
+  location    String?
+  deviceInfo  String?
+}
+
+model Schedule {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime
+  shiftStart  DateTime
+  shiftEnd    DateTime
+
+  @@unique([employeeId, date])
+}
+
+// ------------------------------------------------------
+// AI DOMAIN
+// ------------------------------------------------------
+model CompanyPolicy {
+  id          String   @id @default(uuid())
+  key         String   // e.g., "LEAVE.NOTICE_DAYS" (see docs/03-policy.md)
+  version     String   // e.g., "2026.10-draft"
+  title       String
+  content     String
+  isActive    Boolean  @default(true)
+  lastUpdated DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, version])
+}
+
+model AutonomyConfig {
+  id            String        @id @default(uuid())
+  requestType   RequestType   @unique
+  level         AutonomyLevel @default(SUGGEST_ONLY)
+  minConfidence Float         @default(0.85)
+  updatedById   String?
+  updatedBy     Employee?     @relation(fields: [updatedById], references: [id])
+  updatedAt     DateTime      @updatedAt
+}
+
+model AgentTrace {
+  id              String   @id @default(uuid())
+  requestId       String?
+  request         Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  mode            String   // "CHAT" | "DECISION"
+  model           String?  // LLM model id
+  toolCalls       Json     // Log of tools the AI called
+  policyReferences Json?   // Which policy keys/versions the AI cited
+  decision        RequestStatus? // Proposed decision (APPROVED/REJECTED/ESCALATED)
+  riskLevel       RiskLevel?
+  confidence      Float?
+  rationale       String?
+  correlationId   String?
+
+  approvals       Approval[]
+
+  createdAt       DateTime @default(now())
+}
+
+// ------------------------------------------------------
+// AUDIT DOMAIN
+// ------------------------------------------------------
+model AuditLog {
+  id            String    @id @default(uuid())
+  actorType     ActorType @default(HUMAN)
+  actorId       String?   // null for AI/SYSTEM actions
+  actor         Employee? @relation("AuditActor", fields: [actorId], references: [id])
+  action        String    // e.g., "CREATE_REQUEST", "APPROVE_REQUEST"
+  entityType    String    // e.g., "Request"
+  entityId      String
+  payload       Json?     // { before, after }
+  policyVersion String?
+  correlationId String?   // To trace requests across microservices/UI
+
+  timestamp     DateTime  @default(now())
+
+  @@index([entityType, entityId])
 }

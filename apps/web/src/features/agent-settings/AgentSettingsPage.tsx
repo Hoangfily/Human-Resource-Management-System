@@ -7,7 +7,7 @@ const { Title, Text, Paragraph } = Typography;
 
 export const AgentSettingsPage: React.FC = () => {
   const { message } = AntdApp.useApp();
-  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(AutonomyLevel.RequireApproval);
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(AutonomyLevel.AutoApproveLowRisk);
   const [autoApproveLowRisk, setAutoApproveLowRisk] = useState<boolean>(false);
   const [riskThreshold, setRiskThreshold] = useState<number>(10);
   const [piiFilter, setPiiFilter] = useState<boolean>(true);
@@ -57,26 +57,26 @@ export const AgentSettingsPage: React.FC = () => {
                     <div>
                       <Text strong>1. Chỉ đề xuất (Suggest Only - Chỉ đọc)</Text>
                       <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI chỉ tra cứu quy chế, giải thích chính sách và trả lời câu hỏi. Không được phép tạo bản nháp đơn hoặc gọi Tool ghi.
-                      </div>
-                    </div>
-                  </Radio>
-                  <Divider style={{ margin: '6px 0' }} />
-                  <Radio value={AutonomyLevel.RequireApproval}>
-                    <div>
-                      <Text strong>2. Bắt buộc phê duyệt (Require Approval - Khuyên dùng)</Text>
-                      <Tag color="green" style={{ marginLeft: 8 }}>Mặc định hệ thống</Tag>
-                      <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI tự động soạn thảo đơn nháp (Draft), kiểm tra đối soát quy chế và gửi yêu cầu để <strong>Con người (Quản lý/HR)</strong> phê duyệt.
+                        AI chỉ tra cứu quy chế, giải thích chính sách và trả lời câu hỏi. Mọi đề xuất quyết định đều ESCALATED cho con người duyệt.
                       </div>
                     </div>
                   </Radio>
                   <Divider style={{ margin: '6px 0' }} />
                   <Radio value={AutonomyLevel.AutoApproveLowRisk}>
                     <div>
-                      <Text strong>3. Tự động duyệt rủi ro thấp (Auto Approve Low Risk)</Text>
+                      <Text strong>2. Tự động duyệt rủi ro thấp (Auto Approve Low Risk - Khuyên dùng)</Text>
+                      <Tag color="green" style={{ marginLeft: 8 }}>Mặc định hệ thống</Tag>
                       <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI được phép tự động phê duyệt các đơn xin nghỉ phép 01 ngày có mức rủi ro dưới ngưỡng quy định mà không cần chờ sếp duyệt.
+                        AI được phép tự động phê duyệt (APPROVE) các yêu cầu rủi ro thấp. Mọi trường hợp đề xuất từ chối hoặc rủi ro trung bình/cao đều chuyển con người duyệt.
+                      </div>
+                    </div>
+                  </Radio>
+                  <Divider style={{ margin: '6px 0' }} />
+                  <Radio value={AutonomyLevel.AutoDecideLowRisk}>
+                    <div>
+                      <Text strong>3. Toàn quyền xử lý rủi ro thấp (Auto Decide Low Risk)</Text>
+                      <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
+                        AI được phép tự động ra quyết định phê duyệt (APPROVE) và từ chối (REJECT) các đơn rủi ro thấp nếu độ tin cậy đạt ngưỡng.
                       </div>
                     </div>
                   </Radio>
