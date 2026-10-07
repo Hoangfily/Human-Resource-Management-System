@@ -162,3 +162,8 @@ export function isMockEnabled(): boolean {
 export function setMockEnabled(enabled: boolean): void {
   localStorage.setItem('hr_agent_use_mock', enabled ? 'true' : 'false');
 }
+
+export function addMockRequest(item: RequestItem): void {
+  MOCK_REQUESTS.unshift(item);
+}
+
