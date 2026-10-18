@@ -176,7 +176,7 @@ export const LoginPage: React.FC = () => {
             <Form
               name="login_form"
               layout="vertical"
-              initialValues={{ email: 'an.nguyen@company.com' }}
+              initialValues={{ email: 'minhphong@gmail.com' }}
               onFinish={onFinish}
               size="large"
             >
@@ -223,8 +223,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <UserOutlined style={{ color: '#1677ff' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Nguyễn Văn An</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>an.nguyen@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Phạm Minh Phong</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>minhphong@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.Employee} />
@@ -240,8 +240,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <TeamOutlined style={{ color: '#722ed1' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Trần Thị Bích (Trưởng nhóm)</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>bich.tran@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Nguyễn Tiến Dũng (Trưởng nhóm)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>tiendung@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.Manager} />
@@ -257,8 +257,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <RobotOutlined style={{ color: '#fa541c' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Lê Hoàng Cường (Trưởng phòng HR)</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>cuong.le@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Nguyễn Huy Hoàng (Trưởng phòng HR)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>huyhoang@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.HrAdmin} />
@@ -274,8 +274,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <SafetyCertificateOutlined style={{ color: '#eb2f96' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>System Admin (Quản trị hệ thống)</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>admin@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Admin (Quản trị hệ thống)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>admin@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.Admin} />

@@ -8,7 +8,7 @@ export const AgentTracePage: React.FC = () => {
   const traces = [
     {
       id: 'trace-101',
-      user: 'Nguyễn Văn An',
+      user: 'Phạm Minh Phong',
       intent: 'LEAVE_REQUEST',
       toolsCalled: ['get_employee', 'get_leave_balance', 'check_request', 'create_request'],
       riskScore: 0.1,
@@ -17,7 +17,7 @@ export const AgentTracePage: React.FC = () => {
     },
     {
       id: 'trace-102',
-      user: 'Trần Thị Bích',
+      user: 'Nguyễn Tiến Dũng',
       intent: 'POLICY_QA',
       toolsCalled: ['policy_retriever'],
       riskScore: 0.0,

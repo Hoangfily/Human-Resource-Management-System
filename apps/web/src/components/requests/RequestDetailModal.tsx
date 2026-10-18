@@ -416,7 +416,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                         },
                         {
                           title: 'Xét duyệt cấp quản lý',
-                          actor: request.approverName || 'Trần Thị Bích',
+                          actor: request.approverName || 'Nguyễn Tiến Dũng',
                           actorType: 'HUMAN',
                           timestamp: request.updatedAt,
                           description:

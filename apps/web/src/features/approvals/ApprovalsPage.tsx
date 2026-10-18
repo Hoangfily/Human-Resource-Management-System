@@ -36,10 +36,12 @@ import { MOCK_REQUESTS } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
 import { RequestItem } from '../../types';
 import { RequestDetailModal } from '../../components/requests';
+import { useAuth } from '../auth/AuthContext';
 
 const { Title, Text, Paragraph } = Typography;
 
 export const ApprovalsPage: React.FC = () => {
+  const { user } = useAuth();
   const { message } = AntdApp.useApp();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [allRequests, setAllRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
@@ -71,7 +73,7 @@ export const ApprovalsPage: React.FC = () => {
               ...(r.timeline || []),
               {
                 title: 'Quản lý phê duyệt',
-                actor: 'Trần Thị Bích',
+                actor: user?.fullName || 'Nguyễn Tiến Dũng',
                 actorType: 'HUMAN',
                 timestamp: new Date().toLocaleString('vi-VN'),
                 description: 'Đã phê duyệt chấp thuận yêu cầu',
@@ -140,7 +142,7 @@ export const ApprovalsPage: React.FC = () => {
               ...(r.timeline || []),
               {
                 title: 'Quản lý từ chối',
-                actor: 'Trần Thị Bích',
+                actor: user?.fullName || 'Nguyễn Tiến Dũng',
                 actorType: 'HUMAN',
                 timestamp: new Date().toLocaleString('vi-VN'),
                 description: reason,
@@ -178,7 +180,7 @@ export const ApprovalsPage: React.FC = () => {
               ...(r.timeline || []),
               {
                 title: 'Chuyển cấp thẩm định (Escalate)',
-                actor: 'Trần Thị Bích',
+                actor: user?.fullName || 'Nguyễn Tiến Dũng',
                 actorType: 'HUMAN',
                 timestamp: new Date().toLocaleString('vi-VN'),
                 description: 'Chuyển tiếp lên Trưởng phòng HR do có yếu tố đặc thù',

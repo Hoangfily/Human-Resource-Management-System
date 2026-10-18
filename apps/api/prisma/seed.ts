@@ -66,14 +66,16 @@ async function main() {
     },
   });
 
-  // 4. Tạo các Nhân viên nòng cốt (Employees matching 3 Quick-login buttons)
-  // 4.1 Quản trị viên cao cấp
+  // 4. Tạo các Nhân viên nòng cốt
+  // 4.1 Quản trị viên cao cấp - Admin
   const admin = await prisma.employee.upsert({
-    where: { email: 'admin@company.com' },
-    update: {},
+    where: { email: 'admin@gmail.com' },
+    update: {
+      fullName: 'Admin',
+    },
     create: {
-      email: 'admin@company.com',
-      fullName: 'System Admin',
+      email: 'admin@gmail.com',
+      fullName: 'Admin',
       phone: '0900000001',
       role: Role.ADMIN,
       status: EmployeeStatus.ACTIVE,
@@ -83,13 +85,15 @@ async function main() {
     },
   });
 
-  // 4.2 Quản lý trực tiếp (Manager) - Bích Trần
+  // 4.2 Quản lý trực tiếp (Manager) - Nguyễn Tiến Dũng
   const manager = await prisma.employee.upsert({
-    where: { email: 'bich.tran@company.com' },
-    update: {},
+    where: { email: 'tiendung@gmail.com' },
+    update: {
+      fullName: 'Nguyễn Tiến Dũng',
+    },
     create: {
-      email: 'bich.tran@company.com',
-      fullName: 'Trần Thị Bích',
+      email: 'tiendung@gmail.com',
+      fullName: 'Nguyễn Tiến Dũng',
       phone: '0912345678',
       role: Role.MANAGER,
       status: EmployeeStatus.ACTIVE,
@@ -99,15 +103,16 @@ async function main() {
     },
   });
 
-  // 4.3 Nhân viên cấp dưới (Employee) - An Nguyễn (Quản lý là Bích Trần)
+  // 4.3 Nhân viên cấp dưới (Employee) - Phạm Minh Phong (Quản lý là Nguyễn Tiến Dũng)
   const employee = await prisma.employee.upsert({
-    where: { email: 'an.nguyen@company.com' },
+    where: { email: 'minhphong@gmail.com' },
     update: {
+      fullName: 'Phạm Minh Phong',
       managerId: manager.id,
     },
     create: {
-      email: 'an.nguyen@company.com',
-      fullName: 'Nguyễn Văn An',
+      email: 'minhphong@gmail.com',
+      fullName: 'Phạm Minh Phong',
       phone: '0987654321',
       role: Role.EMPLOYEE,
       status: EmployeeStatus.ACTIVE,
@@ -118,13 +123,15 @@ async function main() {
     },
   });
 
-  // 4.4 Quản trị viên HR - Cường Lê
+  // 4.4 Quản trị viên HR - Nguyễn Huy Hoàng
   const hrAdmin = await prisma.employee.upsert({
-    where: { email: 'cuong.le@company.com' },
-    update: {},
+    where: { email: 'huyhoang@gmail.com' },
+    update: {
+      fullName: 'Nguyễn Huy Hoàng',
+    },
     create: {
-      email: 'cuong.le@company.com',
-      fullName: 'Lê Hoàng Cường',
+      email: 'huyhoang@gmail.com',
+      fullName: 'Nguyễn Huy Hoàng',
       phone: '0901234567',
       role: Role.HR,
       status: EmployeeStatus.ACTIVE,
@@ -345,10 +352,10 @@ async function main() {
   }
 
   console.log('--- Hoàn tất nạp dữ liệu mẫu (Seeding Thành Công)! ---');
-  console.log('1. Admin:     admin@company.com     (Role: ADMIN)');
-  console.log('2. Manager:   bich.tran@company.com (Role: MANAGER)');
-  console.log('3. Employee:  an.nguyen@company.com  (Role: EMPLOYEE, Quản lý: bich.tran)');
-  console.log('4. HR Admin:  cuong.le@company.com   (Role: HR)');
+  console.log('1. Admin:     admin@gmail.com     (Role: ADMIN)');
+  console.log('2. Manager:   tiendung@gmail.com  (Role: MANAGER, Nguyễn Tiến Dũng)');
+  console.log('3. Employee:  minhphong@gmail.com (Role: EMPLOYEE, Phạm Minh Phong, Quản lý: tiendung)');
+  console.log('4. HR Admin:  huyhoang@gmail.com  (Role: HR, Nguyễn Huy Hoàng)');
   console.log(`Đã nạp ${policies.length} quy chuẩn chính sách công ty và quỹ ngày phép 2026.`);
 }
 

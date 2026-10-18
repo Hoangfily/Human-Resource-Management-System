@@ -97,7 +97,7 @@ export const ShiftsPage: React.FC = () => {
                 <div style={{ fontSize: 13, color: '#14532d' }}>Văn phòng chính (Tầng 4)</div>
               </div>
               <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-                <div>• Trưởng ca: <strong>Trần Thị Bích</strong></div>
+                <div>• Trưởng ca: <strong>Nguyễn Tiến Dũng</strong></div>
                 <div>• Quân số ca trực: <strong>3/3 nhân sự</strong></div>
               </div>
             </Card>

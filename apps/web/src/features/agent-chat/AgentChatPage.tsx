@@ -439,7 +439,7 @@ Bạn có muốn tôi soạn thảo đơn nghỉ phép hoặc giải trình ch�
           const newRequestItem: RequestItem = {
             id: newReqId,
             employeeId: 'emp-001',
-            employeeName: user?.fullName || 'Nguyễn Văn An',
+            employeeName: user?.fullName || 'Phạm Minh Phong',
             employeeCode: 'EMP001',
             departmentName: 'Phòng Công nghệ Thông tin',
             type: updatedCard.requestType,
@@ -452,7 +452,7 @@ Bạn có muốn tôi soạn thảo đơn nghỉ phép hoặc giải trình ch�
             aiRiskScore: updatedCard.riskLevel === 'LOW' ? 0.05 : 0.4,
             aiPolicyFindings: updatedCard.policyChecks.map((c) => c.description),
             approverId: 'mgr-001',
-            approverName: 'Trần Thị Bích',
+            approverName: 'Nguyễn Tiến Dũng',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -471,7 +471,7 @@ Bạn có muốn tôi soạn thảo đơn nghỉ phép hoặc giải trình ch�
       const followUpMsg: ChatMessage = {
         id: `agent-confirm-${Date.now()}`,
         sender: 'agent',
-        text: `🎉 **Xác nhận thành công!** Đơn của bạn đã được ghi nhận với mã **#${newReqId}** và tự động chuyển đến Trưởng nhóm (**Trần Thị Bích**) xem xét. 
+        text: `🎉 **Xác nhận thành công!** Đơn của bạn đã được ghi nhận với mã **#${newReqId}** và tự động chuyển đến Trưởng nhóm (**Nguyễn Tiến Dũng**) xem xét. 
 
 Do mức rủi ro được AI đánh giá là **LOW RISK**, nếu cài đặt của công ty ở mức *Auto Approve Low Risk*, đơn có thể được tự động duyệt nhanh chóng!`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1050,7 +1050,7 @@ Do mức rủi ro được AI đánh giá là **LOW RISK**, nếu cài đặt c�
                 </Col>
                 <Col span={12}>
                   <Text type="secondary">Cấp quản lý duyệt:</Text>
-                  <div><strong>Trần Thị Bích</strong></div>
+                  <div><strong>Nguyễn Tiến Dũng</strong></div>
                 </Col>
               </Row>
             </Card>

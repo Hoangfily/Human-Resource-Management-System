@@ -61,7 +61,7 @@ export const RequestsPage: React.FC = () => {
     const newReq: RequestItem = {
       id: `req-00${requests.length + 1}`,
       employeeId: 'emp-001',
-      employeeName: 'Nguyễn Văn An',
+      employeeName: 'Phạm Minh Phong',
       employeeCode: 'EMP001',
       departmentName: 'Phòng Công nghệ Thông tin',
       type: selectedType,
@@ -76,13 +76,13 @@ export const RequestsPage: React.FC = () => {
       aiRationale: 'Đơn nộp hợp lệ trước 5 ngày làm việc. Số dư ngày phép còn đủ.',
       aiPolicyFindings: ['Đã gửi trước 5 ngày theo quy chế LEAVE.NOTICE_DAYS', 'Số dư ngày phép còn đủ'],
       approverId: 'mgr-001',
-      approverName: 'Trần Thị Bích',
+      approverName: 'Nguyễn Tiến Dũng',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       timeline: [
         {
           title: 'Tạo yêu cầu',
-          actor: 'Nguyễn Văn An',
+          actor: 'Phạm Minh Phong',
           actorType: 'HUMAN',
           timestamp: new Date().toLocaleString('vi-VN'),
           description: values.reason,
@@ -98,7 +98,7 @@ export const RequestsPage: React.FC = () => {
         },
         {
           title: 'Chờ Quản lý duyệt',
-          actor: 'Trần Thị Bích',
+          actor: 'Nguyễn Tiến Dũng',
           actorType: 'HUMAN',
           timestamp: new Date().toLocaleString('vi-VN'),
           status: 'process',
@@ -129,7 +129,7 @@ export const RequestsPage: React.FC = () => {
                     ...(r.timeline || []),
                     {
                       title: 'Đã hủy yêu cầu',
-                      actor: 'Nguyễn Văn An',
+                      actor: 'Phạm Minh Phong',
                       actorType: 'HUMAN',
                       timestamp: new Date().toLocaleString('vi-VN'),
                       description: 'Nhân viên chủ động hủy đơn',

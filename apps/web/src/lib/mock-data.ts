@@ -4,8 +4,8 @@ import { User, RequestItem, LeaveBalanceResponse } from '../types';
 export const MOCK_USERS: Record<string, User> = {
   employee: {
     id: 'emp-001',
-    email: 'an.nguyen@company.com',
-    fullName: 'Nguyễn Văn An',
+    email: 'minhphong@gmail.com',
+    fullName: 'Phạm Minh Phong',
     role: UserRole.Employee,
     departmentId: 'dept-tech',
     departmentName: 'Phòng Công nghệ Thông tin',
@@ -14,8 +14,8 @@ export const MOCK_USERS: Record<string, User> = {
   },
   manager: {
     id: 'mgr-001',
-    email: 'bich.tran@company.com',
-    fullName: 'Trần Thị Bích',
+    email: 'tiendung@gmail.com',
+    fullName: 'Nguyễn Tiến Dũng',
     role: UserRole.Manager,
     departmentId: 'dept-tech',
     departmentName: 'Phòng Công nghệ Thông tin',
@@ -24,8 +24,8 @@ export const MOCK_USERS: Record<string, User> = {
   },
   hrAdmin: {
     id: 'hr-001',
-    email: 'cuong.le@company.com',
-    fullName: 'Lê Hoàng Cường',
+    email: 'huyhoang@gmail.com',
+    fullName: 'Nguyễn Huy Hoàng',
     role: UserRole.HrAdmin,
     departmentId: 'dept-hr',
     departmentName: 'Phòng Nhân sự',
@@ -34,8 +34,8 @@ export const MOCK_USERS: Record<string, User> = {
   },
   admin: {
     id: 'admin-001',
-    email: 'admin@company.com',
-    fullName: 'System Admin',
+    email: 'admin@gmail.com',
+    fullName: 'Admin',
     role: UserRole.Admin,
     departmentId: 'dept-tech',
     departmentName: 'Phòng Công nghệ Thông tin',
@@ -75,7 +75,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
   {
     id: 'req-001',
     employeeId: 'emp-001',
-    employeeName: 'Nguyễn Văn An',
+    employeeName: 'Phạm Minh Phong',
     employeeCode: 'EMP001',
     departmentName: 'Phòng Công nghệ Thông tin',
     type: RequestType.Leave,
@@ -101,7 +101,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
     timeline: [
       {
         title: 'Tạo yêu cầu',
-        actor: 'Nguyễn Văn An',
+        actor: 'Phạm Minh Phong',
         actorType: 'HUMAN',
         timestamp: '2026-10-07 08:30:00',
         description: 'Tạo đơn xin nghỉ phép năm 2 ngày qua giao diện web',
@@ -117,7 +117,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
       },
       {
         title: 'Chờ Quản lý phê duyệt',
-        actor: 'Trần Thị Bích (Trưởng nhóm)',
+        actor: 'Nguyễn Tiến Dũng (Trưởng nhóm)',
         actorType: 'HUMAN',
         timestamp: '2026-10-07 08:30:06',
         description: 'Đơn đang trong hàng đợi phê duyệt của cấp quản lý',
@@ -125,14 +125,14 @@ export const MOCK_REQUESTS: RequestItem[] = [
       },
     ],
     approverId: 'mgr-001',
-    approverName: 'Trần Thị Bích',
+    approverName: 'Nguyễn Tiến Dũng',
     createdAt: '2026-10-07T08:30:00Z',
     updatedAt: '2026-10-07T08:30:00Z',
   },
   {
     id: 'req-002',
     employeeId: 'emp-001',
-    employeeName: 'Nguyễn Văn An',
+    employeeName: 'Phạm Minh Phong',
     employeeCode: 'EMP001',
     departmentName: 'Phòng Công nghệ Thông tin',
     type: RequestType.AttendanceExplanation,
@@ -156,7 +156,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
     timeline: [
       {
         title: 'Tạo đơn giải trình',
-        actor: 'Nguyễn Văn An',
+        actor: 'Phạm Minh Phong',
         actorType: 'HUMAN',
         timestamp: '2026-10-02 10:00:00',
         description: 'Nộp giải trình sự cố máy chấm công',
@@ -172,7 +172,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
       },
       {
         title: 'Quản lý phê duyệt',
-        actor: 'Trần Thị Bích',
+        actor: 'Nguyễn Tiến Dũng',
         actorType: 'HUMAN',
         timestamp: '2026-10-02 14:20:00',
         description: 'Xác nhận sự cố cửa ra vào và phê duyệt đơn',
@@ -180,14 +180,14 @@ export const MOCK_REQUESTS: RequestItem[] = [
       },
     ],
     approverId: 'mgr-001',
-    approverName: 'Trần Thị Bích',
+    approverName: 'Nguyễn Tiến Dũng',
     createdAt: '2026-10-02T10:00:00Z',
     updatedAt: '2026-10-02T14:20:00Z',
   },
   {
     id: 'req-003',
     employeeId: 'emp-001',
-    employeeName: 'Nguyễn Văn An',
+    employeeName: 'Phạm Minh Phong',
     employeeCode: 'EMP001',
     departmentName: 'Phòng Công nghệ Thông tin',
     type: RequestType.ShiftChange,
@@ -211,7 +211,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
     timeline: [
       {
         title: 'Tạo đơn đổi ca',
-        actor: 'Nguyễn Văn An',
+        actor: 'Phạm Minh Phong',
         actorType: 'HUMAN',
         timestamp: '2026-10-04 09:00:00',
         description: 'Yêu cầu chuyển từ ca sáng sang ca chiều ngày 05/10',
@@ -227,7 +227,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
       },
       {
         title: 'Quản lý từ chối',
-        actor: 'Trần Thị Bích',
+        actor: 'Nguyễn Tiến Dũng',
         actorType: 'HUMAN',
         timestamp: '2026-10-04 11:00:00',
         description: 'Từ chối: Ca chiều đã đủ quân số, ca sáng không có người thay thế',
@@ -236,14 +236,14 @@ export const MOCK_REQUESTS: RequestItem[] = [
     ],
     rejectionReason: 'Ca chiều cùng ngày đã đủ quân số, ca sáng đang thiếu người.',
     approverId: 'mgr-001',
-    approverName: 'Trần Thị Bích',
+    approverName: 'Nguyễn Tiến Dũng',
     createdAt: '2026-10-04T09:00:00Z',
     updatedAt: '2026-10-04T11:00:00Z',
   },
   {
     id: 'req-004',
     employeeId: 'emp-001',
-    employeeName: 'Nguyễn Văn An',
+    employeeName: 'Phạm Minh Phong',
     employeeCode: 'EMP001',
     departmentName: 'Phòng Công nghệ Thông tin',
     type: RequestType.Leave,
@@ -264,7 +264,7 @@ export const MOCK_REQUESTS: RequestItem[] = [
     timeline: [
       {
         title: 'Khởi tạo bản nháp',
-        actor: 'Nguyễn Văn An / AI Copilot',
+        actor: 'Phạm Minh Phong / AI Copilot',
         actorType: 'AI',
         timestamp: '2026-10-07 14:15:00',
         description: 'Bản nháp lưu tạm, chưa gửi phê duyệt',

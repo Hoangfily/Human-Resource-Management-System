@@ -88,10 +88,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin',
   ): Promise<boolean> => {
     const emailMap: Record<string, string> = {
-      employee: 'an.nguyen@company.com',
-      manager: 'bich.tran@company.com',
-      hrAdmin: 'cuong.le@company.com',
-      admin: 'admin@company.com',
+      employee: 'minhphong@gmail.com',
+      manager: 'tiendung@gmail.com',
+      hrAdmin: 'huyhoang@gmail.com',
+      admin: 'admin@gmail.com',
     };
     const email = emailMap[roleKey];
     if (email) {
