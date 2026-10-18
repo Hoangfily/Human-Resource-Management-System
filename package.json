@@ -10,6 +10,7 @@
     "dev:web": "npm --workspace @hr-agent/web run dev",
     "build:web": "npm --workspace @hr-agent/web run build",
     "dev:api": "npm --workspace @hr-agent/api run start:dev",
-    "build:api": "npm --workspace @hr-agent/api run build"
+    "build:api": "npm --workspace @hr-agent/api run build",
+    "seed:api": "npm --workspace @hr-agent/api run seed"
   }
 }
