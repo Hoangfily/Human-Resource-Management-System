@@ -45,6 +45,15 @@ export type RequestPayload =
   | ShiftChangePayload
   | Record<string, unknown>;
 
+export interface RequestTimelineItem {
+  title: string;
+  actor: string;
+  actorType?: 'HUMAN' | 'AI' | 'SYSTEM';
+  timestamp: string;
+  description?: string;
+  status: 'finish' | 'process' | 'wait' | 'error';
+}
+
 export interface RequestItem {
   id: string;
   employeeId: string;
@@ -56,12 +65,18 @@ export interface RequestItem {
   payload: RequestPayload;
   aiRiskScore?: number;
   aiPolicyFindings?: string[];
+  aiConfidence?: number;
+  aiRationale?: string;
+  riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  policyReferences?: string[];
+  timeline?: RequestTimelineItem[];
   approverId?: string;
   approverName?: string;
   rejectionReason?: string;
   createdAt: string;
   updatedAt: string;
 }
+
 
 export interface CreateRequestInput {
   type: RequestType;

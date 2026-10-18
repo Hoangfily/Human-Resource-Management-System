@@ -17,6 +17,8 @@ import {
   Tabs,
   Badge,
   App as AntdApp,
+  Segmented,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -24,11 +26,16 @@ import {
   ClockCircleOutlined,
   SafetyCertificateOutlined,
   FileDoneOutlined,
+  EyeOutlined,
+  StopOutlined,
+  SearchOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { RequestStatus, RequestType } from '@hr-agent/shared';
 import { MOCK_REQUESTS, MOCK_LEAVE_BALANCE } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
 import { RequestItem } from '../../types';
+import { RequestDetailModal } from '../../components/requests';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -37,7 +44,14 @@ export const RequestsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
   const [requests, setRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
 
-  // Form states
+  // Bộ lọc & tìm kiếm
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
+
+  // Modal xem chi tiết
+  const [selectedDetailRequest, setSelectedDetailRequest] = useState<RequestItem | null>(null);
+
+  // Form states cho tạo đơn mới
   const [selectedType, setSelectedType] = useState<RequestType>(RequestType.Leave);
   const [daysCount, setDaysCount] = useState<number>(2);
 
@@ -48,6 +62,7 @@ export const RequestsPage: React.FC = () => {
       id: `req-00${requests.length + 1}`,
       employeeId: 'emp-001',
       employeeName: 'Nguyễn Văn An',
+      employeeCode: 'EMP001',
       departmentName: 'Phòng Công nghệ Thông tin',
       type: selectedType,
       status: RequestStatus.Pending,
@@ -55,10 +70,40 @@ export const RequestsPage: React.FC = () => {
         reason: values.reason || 'Xin nghỉ phép',
         daysCount,
       },
+      riskLevel: 'LOW',
       aiRiskScore: 0.05,
-      aiPolicyFindings: ['Đã gửi trước 5 ngày', 'Số dư ngày phép còn đủ'],
+      aiConfidence: 0.95,
+      aiRationale: 'Đơn nộp hợp lệ trước 5 ngày làm việc. Số dư ngày phép còn đủ.',
+      aiPolicyFindings: ['Đã gửi trước 5 ngày theo quy chế LEAVE.NOTICE_DAYS', 'Số dư ngày phép còn đủ'],
+      approverId: 'mgr-001',
+      approverName: 'Trần Thị Bích',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      timeline: [
+        {
+          title: 'Tạo yêu cầu',
+          actor: 'Nguyễn Văn An',
+          actorType: 'HUMAN',
+          timestamp: new Date().toLocaleString('vi-VN'),
+          description: values.reason,
+          status: 'finish',
+        },
+        {
+          title: 'AI Agent Thẩm định',
+          actor: 'HR AI Copilot',
+          actorType: 'AI',
+          timestamp: new Date().toLocaleString('vi-VN'),
+          description: 'LOW RISK - Đạt chuẩn quy chế HR',
+          status: 'finish',
+        },
+        {
+          title: 'Chờ Quản lý duyệt',
+          actor: 'Trần Thị Bích',
+          actorType: 'HUMAN',
+          timestamp: new Date().toLocaleString('vi-VN'),
+          status: 'process',
+        },
+      ],
     };
 
     setRequests([newReq, ...requests]);
@@ -66,12 +111,65 @@ export const RequestsPage: React.FC = () => {
     setActiveTab('list');
   };
 
+  const handleCancelRequest = (id: string) => {
+    Modal.confirm({
+      title: 'Xác nhận hủy yêu cầu',
+      content: `Bạn có chắc chắn muốn hủy yêu cầu #${id}? Thao tác này không thể hoàn tác.`,
+      okText: 'Hủy yêu cầu',
+      okType: 'danger',
+      cancelText: 'Quay lại',
+      onOk() {
+        setRequests((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  status: RequestStatus.Cancelled,
+                  timeline: [
+                    ...(r.timeline || []),
+                    {
+                      title: 'Đã hủy yêu cầu',
+                      actor: 'Nguyễn Văn An',
+                      actorType: 'HUMAN',
+                      timestamp: new Date().toLocaleString('vi-VN'),
+                      description: 'Nhân viên chủ động hủy đơn',
+                      status: 'error',
+                    },
+                  ],
+                }
+              : r
+          )
+        );
+        message.info(`Đã hủy yêu cầu #${id}.`);
+      },
+    });
+  };
+
+  // Lọc danh sách đơn theo tab và ô tìm kiếm
+  const filteredRequests = requests.filter((item) => {
+    // Lọc theo trạng thái
+    if (statusFilter !== 'ALL' && item.status !== statusFilter) {
+      return false;
+    }
+    // Lọc theo từ khóa tìm kiếm
+    if (searchKeyword.trim()) {
+      const q = searchKeyword.toLowerCase();
+      const reason = String((item.payload as Record<string, string>)?.reason || '').toLowerCase();
+      return item.id.toLowerCase().includes(q) || reason.includes(q);
+    }
+    return true;
+  });
+
   const columns = [
     {
       title: 'Mã đơn',
       dataIndex: 'id',
       key: 'id',
-      render: (id: string) => <Text code style={{ color: '#0f766e', fontWeight: 600 }}>{id}</Text>,
+      render: (id: string) => (
+        <Text code style={{ color: '#0f766e', fontWeight: 600 }}>
+          {id}
+        </Text>
+      ),
     },
     {
       title: 'Loại yêu cầu',
@@ -83,7 +181,11 @@ export const RequestsPage: React.FC = () => {
           [RequestType.AttendanceExplanation]: 'Bổ sung chấm công',
           [RequestType.ShiftChange]: 'Đổi ca làm việc',
         };
-        return <Tag color="cyan" style={{ borderRadius: 6 }}>{labels[type] || type}</Tag>;
+        return (
+          <Tag color="cyan" style={{ borderRadius: 6 }}>
+            {labels[type] || type}
+          </Tag>
+        );
       },
     },
     {
@@ -91,7 +193,24 @@ export const RequestsPage: React.FC = () => {
       key: 'reason',
       render: (_: unknown, record: RequestItem) => {
         const payload = record.payload as Record<string, string>;
-        return <Text>{payload.reason || '—'}</Text>;
+        return (
+          <Text ellipsis style={{ maxWidth: 220, display: 'inline-block' }}>
+            {payload.reason || '—'}
+          </Text>
+        );
+      },
+    },
+    {
+      title: 'Đánh giá AI',
+      key: 'aiRisk',
+      render: (_: unknown, record: RequestItem) => {
+        const risk = record.riskLevel || 'LOW';
+        const color = risk === 'HIGH' ? 'error' : risk === 'MEDIUM' ? 'warning' : 'success';
+        return (
+          <Tag color={color} style={{ borderRadius: 6, fontSize: 11 }}>
+            {risk} ({Math.round((record.aiConfidence ?? 0.95) * 100)}%)
+          </Tag>
+        );
       },
     },
     {
@@ -112,16 +231,46 @@ export const RequestsPage: React.FC = () => {
       key: 'createdAt',
       render: (d: string) => new Date(d).toLocaleDateString('vi-VN'),
     },
+    {
+      title: 'Thao tác',
+      key: 'action',
+      render: (_: unknown, record: RequestItem) => (
+        <Space size={6} onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Xem chi tiết & phân tích của AI">
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => setSelectedDetailRequest(record)}
+            >
+              Chi tiết
+            </Button>
+          </Tooltip>
+          {(record.status === RequestStatus.Pending || record.status === RequestStatus.Draft) && (
+            <Tooltip title="Hủy yêu cầu">
+              <Button
+                size="small"
+                danger
+                icon={<StopOutlined />}
+                onClick={() => handleCancelRequest(record.id)}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
   ];
 
   return (
     <div>
+      {/* Tiêu đề & Nút chuyển đổi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>
             Quản lý Đơn từ & Yêu cầu
           </Title>
-          <Text type="secondary">Tạo đơn nghỉ phép, giải trình công, đổi ca và kiểm tra tính hợp lệ tự động.</Text>
+          <Text type="secondary">
+            Tạo đơn nghỉ phép, giải trình công, đổi ca và xem xét thẩm định tự động từ AI Agent.
+          </Text>
         </div>
         <Button
           type="primary"
@@ -135,10 +284,60 @@ export const RequestsPage: React.FC = () => {
 
       {activeTab === 'list' ? (
         <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
-          <Table dataSource={requests} columns={columns} rowKey="id" pagination={{ pageSize: 6 }} />
+          {/* Thanh công cụ tìm kiếm & bộ lọc */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <Segmented
+              value={statusFilter}
+              onChange={(val) => setStatusFilter(val as string)}
+              options={[
+                { label: `Tất cả (${requests.length})`, value: 'ALL' },
+                {
+                  label: `Chờ duyệt (${requests.filter((r) => r.status === RequestStatus.Pending).length})`,
+                  value: RequestStatus.Pending,
+                },
+                {
+                  label: `Đã duyệt (${requests.filter((r) => r.status === RequestStatus.Approved).length})`,
+                  value: RequestStatus.Approved,
+                },
+                {
+                  label: `Từ chối (${requests.filter((r) => r.status === RequestStatus.Rejected).length})`,
+                  value: RequestStatus.Rejected,
+                },
+              ]}
+            />
+
+            <Input
+              placeholder="Tìm theo mã đơn hoặc lý do..."
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              style={{ width: 260, borderRadius: 8 }}
+              allowClear
+            />
+          </div>
+
+          <Table
+            dataSource={filteredRequests}
+            columns={columns}
+            rowKey="id"
+            pagination={{ pageSize: 6 }}
+            onRow={(record) => ({
+              onClick: () => setSelectedDetailRequest(record),
+              style: { cursor: 'pointer' },
+            })}
+          />
         </Card>
       ) : (
-        /* Giao diện Tạo đơn 2 cột (Screen 3 trong thiết kế) */
+        /* Giao diện Tạo đơn 2 cột */
         <Row gutter={[24, 24]}>
           {/* Cột trái: Form nhập thông tin đơn */}
           <Col xs={24} lg={15}>
@@ -190,7 +389,12 @@ export const RequestsPage: React.FC = () => {
                 </Form.Item>
 
                 <Space size={12}>
-                  <Button type="primary" htmlType="submit" size="large" style={{ background: '#059669', borderColor: '#059669' }}>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    size="large"
+                    style={{ background: '#059669', borderColor: '#059669' }}
+                  >
                     Xác nhận gửi duyệt
                   </Button>
                   <Button size="large" onClick={() => setActiveTab('list')}>
@@ -263,6 +467,14 @@ export const RequestsPage: React.FC = () => {
           </Col>
         </Row>
       )}
+
+      {/* MODAL XEM CHI TIẾT ĐƠN & THẨM ĐỊNH AI */}
+      <RequestDetailModal
+        open={Boolean(selectedDetailRequest)}
+        onClose={() => setSelectedDetailRequest(null)}
+        request={selectedDetailRequest}
+        onCancelRequest={(id) => handleCancelRequest(id)}
+      />
     </div>
   );
 };
