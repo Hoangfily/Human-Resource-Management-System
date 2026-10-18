@@ -32,6 +32,16 @@ export const MOCK_USERS: Record<string, User> = {
     positionId: 'pos-hr-lead',
     positionName: 'Trưởng phòng Nhân sự',
   },
+  admin: {
+    id: 'admin-001',
+    email: 'admin@company.com',
+    fullName: 'System Admin',
+    role: UserRole.Admin,
+    departmentId: 'dept-tech',
+    departmentName: 'Phòng Công nghệ Thông tin',
+    positionId: 'pos-admin',
+    positionName: 'Quản trị viên Hệ thống',
+  },
 };
 
 export const MOCK_LEAVE_BALANCE: LeaveBalanceResponse = {

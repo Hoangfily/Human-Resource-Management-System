@@ -10,7 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<boolean>;
-  loginAsDemoRole: (roleKey: 'employee' | 'manager' | 'hrAdmin') => void;
+  loginAsDemoRole: (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => Promise<boolean>;
   logout: () => void;
 }
 
@@ -42,11 +42,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (credentials: LoginCredentials): Promise<boolean> => {
     setIsLoading(true);
     try {
-      // Nếu mock enabled hoặc backend không phản hồi, dùng mock login
+      // 1. Ưu tiên gọi API Backend NestJS thật
+      const response = await apiClient.post<{ user: User; tokens: { accessToken: string } }>(
+        '/auth/login',
+        credentials
+      );
+
+      // Lưu trữ thông tin đăng nhập từ backend
+      const authData = response as unknown as { user: User; tokens: { accessToken: string } };
+      if (authData?.tokens?.accessToken) {
+        authStorage.setAccessToken(authData.tokens.accessToken);
+        authStorage.setUser(authData.user);
+        setUser(authData.user);
+        setIsLoading(false);
+        return true;
+      }
+      setIsLoading(false);
+      return false;
+    } catch {
+      // 2. Khi API lỗi hoặc offline, nếu bật mock thì tự fallback
       if (isMockEnabled()) {
         let matchedUser = Object.values(MOCK_USERS).find((u) => u.email === credentials.email);
         if (!matchedUser) {
-          // Mặc định gán nhân viên nếu nhập email bất kỳ
           matchedUser = {
             id: 'emp-custom',
             email: credentials.email,
@@ -62,47 +79,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoading(false);
         return true;
       }
-
-      // Gọi API Backend thật
-      const response = await apiClient.post<{ user: User; tokens: { accessToken: string } }>(
-        '/auth/login',
-        credentials
-      );
-
-      // Lưu trữ thông tin
-      const authData = response as unknown as { user: User; tokens: { accessToken: string } };
-      if (authData.tokens?.accessToken) {
-        authStorage.setAccessToken(authData.tokens.accessToken);
-        authStorage.setUser(authData.user);
-        setUser(authData.user);
-        setIsLoading(false);
-        return true;
-      }
-      setIsLoading(false);
-      return false;
-    } catch {
-      // Khi API lỗi, nếu bật mock thì tự fallback
-      if (isMockEnabled()) {
-        const fallback = MOCK_USERS.employee;
-        authStorage.setUser(fallback);
-        authStorage.setAccessToken('mock_token_fallback');
-        setUser(fallback);
-        setIsLoading(false);
-        return true;
-      }
       setIsLoading(false);
       return false;
     }
   };
 
-  const loginAsDemoRole = (roleKey: 'employee' | 'manager' | 'hrAdmin') => {
+  const loginAsDemoRole = async (
+    roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin',
+  ): Promise<boolean> => {
+    const emailMap: Record<string, string> = {
+      employee: 'an.nguyen@company.com',
+      manager: 'bich.tran@company.com',
+      hrAdmin: 'cuong.le@company.com',
+      admin: 'admin@company.com',
+    };
+    const email = emailMap[roleKey];
+    if (email) {
+      return login({ email, password: 'password123' });
+    }
     const demoUser = MOCK_USERS[roleKey];
     authStorage.setUser(demoUser);
     authStorage.setAccessToken(`mock_token_${demoUser.id}`);
     setUser(demoUser);
+    return true;
   };
 
   const logout = () => {
+    apiClient.post('/auth/logout', {}).catch(() => {});
     authStorage.clear();
     setUser(null);
   };

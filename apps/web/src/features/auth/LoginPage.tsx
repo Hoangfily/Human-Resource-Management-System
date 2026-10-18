@@ -62,10 +62,17 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickDemo = (roleKey: 'employee' | 'manager' | 'hrAdmin') => {
-    loginAsDemoRole(roleKey);
-    message.success('Đăng nhập tài khoản demo thành công!');
-    navigate(from, { replace: true });
+  const handleQuickDemo = async (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => {
+    setSubmitting(true);
+    try {
+      await loginAsDemoRole(roleKey);
+      message.success('Đăng nhập tài khoản thành công!');
+      navigate(from, { replace: true });
+    } catch {
+      message.error('Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -257,14 +264,31 @@ export const LoginPage: React.FC = () => {
                   <RoleTag role={UserRole.HrAdmin} />
                 </div>
               </Button>
+
+              <Button
+                block
+                onClick={() => handleQuickDemo('admin')}
+                style={{ textAlign: 'left', height: 'auto', padding: '10px 14px' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <SafetyCertificateOutlined style={{ color: '#eb2f96' }} />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>System Admin (Quản trị hệ thống)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>admin@company.com</div>
+                    </div>
+                  </Space>
+                  <RoleTag role={UserRole.Admin} />
+                </div>
+              </Button>
             </Space>
 
             <Alert
-              type="info"
+              type="success"
               showIcon
               style={{ marginTop: 20 }}
-              message="Chế độ Mock Data đang hoạt động"
-              description="Bạn có thể bấm vào bất kỳ vai trò nào ở trên để trải nghiệm giao diện phân quyền tương ứng."
+              message="Đã kết nối NestJS Backend API & PostgreSQL"
+              description="Đăng nhập xác thực JWT thật qua cơ sở dữ liệu Docker (kèm chế độ dự phòng Offline/Mock)."
             />
           </Col>
         </Row>
