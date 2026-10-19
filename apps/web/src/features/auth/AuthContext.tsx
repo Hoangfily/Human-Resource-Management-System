@@ -25,16 +25,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const storedUser = authStorage.getUser();
     const token = authStorage.getAccessToken();
 
-    if (storedUser && token) {
+    // Chỉ khôi phục phiên nếu token hợp lệ (không phải mock token cũ chưa đăng nhập)
+    if (storedUser && token && !token.startsWith('mock_token_')) {
       setUser(storedUser);
     } else {
-      // Mặc định đăng nhập nhân viên demo nếu đang ở chế độ mock
-      if (isMockEnabled()) {
-        const defaultUser = MOCK_USERS.employee;
-        authStorage.setUser(defaultUser);
-        authStorage.setAccessToken('mock_token_employee_001');
-        setUser(defaultUser);
+      if (token?.startsWith('mock_token_')) {
+        authStorage.clear();
       }
+      setUser(null);
     }
     setIsLoading(false);
   }, []);
@@ -97,11 +95,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (email) {
       return login({ email, password: 'password123' });
     }
-    const demoUser = MOCK_USERS[roleKey];
-    authStorage.setUser(demoUser);
-    authStorage.setAccessToken(`mock_token_${demoUser.id}`);
-    setUser(demoUser);
-    return true;
+    return false;
   };
 
   const logout = () => {

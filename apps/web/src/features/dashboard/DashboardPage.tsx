@@ -60,7 +60,7 @@ export const DashboardPage: React.FC = () => {
         }
       })
       .catch(() => {});
-  }, [user]);
+  }, [user?.id]);
 
   const annualLeave = leaveBalance.balances.find(
     (b: any) => b.leaveType === 'ANNUAL' || b.leaveTypeCode === 'ANNUAL',

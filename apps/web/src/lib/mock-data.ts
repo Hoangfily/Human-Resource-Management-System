@@ -286,8 +286,7 @@ export function isMockEnabled(): boolean {
   if (stored !== null) {
     return stored === 'true';
   }
-  // Mặc định bật mock nếu biến môi trường VITE_USE_MOCK=true hoặc chưa có backend chạy
-  return import.meta.env.VITE_USE_MOCK !== 'false';
+  return false;
 }
 
 export function setMockEnabled(enabled: boolean): void {
