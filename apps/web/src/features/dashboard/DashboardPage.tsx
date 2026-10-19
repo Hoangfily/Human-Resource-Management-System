@@ -16,7 +16,7 @@ import { MOCK_LEAVE_BALANCE, MOCK_REQUESTS } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
 import { RequestType } from '@hr-agent/shared';
 import apiClient from '../../lib/api-client';
-import { LeaveBalanceResponse } from '../../types';
+import { LeaveBalanceResponse, RequestItem } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -25,6 +25,7 @@ export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalanceResponse>(MOCK_LEAVE_BALANCE);
   const [profile, setProfile] = useState<any>(null);
+  const [requests, setRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
 
   useEffect(() => {
     // Tải số dư quỹ phép thực tế từ PostgreSQL
@@ -34,6 +35,17 @@ export const DashboardPage: React.FC = () => {
         const data = res as unknown as LeaveBalanceResponse;
         if (data && data.balances && data.balances.length > 0) {
           setLeaveBalance(data);
+        }
+      })
+      .catch(() => {});
+
+    // Tải danh sách đơn thực tế từ Backend
+    apiClient
+      .get<RequestItem[]>('/requests')
+      .then((res) => {
+        const data = res as unknown as RequestItem[];
+        if (Array.isArray(data)) {
+          setRequests(data);
         }
       })
       .catch(() => {});
@@ -56,7 +68,7 @@ export const DashboardPage: React.FC = () => {
   const sickLeave = leaveBalance.balances.find(
     (b: any) => b.leaveType === 'SICK' || b.leaveTypeCode === 'SICK',
   );
-  const pendingRequests = MOCK_REQUESTS.filter((r) => r.status === 'PENDING');
+  const pendingRequests = requests.filter((r) => r.status === 'PENDING');
 
   const columns = [
     {
@@ -254,11 +266,15 @@ export const DashboardPage: React.FC = () => {
             style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
           >
             <Table
-              dataSource={MOCK_REQUESTS.slice(0, 4)}
+              dataSource={requests.slice(0, 4)}
               columns={columns}
               rowKey="id"
               pagination={false}
               size="middle"
+              onRow={() => ({
+                onClick: () => navigate('/requests'),
+                style: { cursor: 'pointer' },
+              })}
             />
           </Card>
         </Col>
