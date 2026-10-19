@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
+import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
 
 @Controller('requests')
 @UseGuards(JwtAuthGuard)
@@ -32,6 +33,15 @@ export class RequestsController {
     @Query() query: QueryRequestsDto,
   ) {
     return this.requestsService.findAll(caller, query);
+  }
+
+  // Hàng đợi phê duyệt dành cho Quản lý & HR (đặt trước :id để tránh xung đột routing)
+  @Get('approvals/queue')
+  async getApprovalsQueue(
+    @CurrentUser() caller: { id: string; role: string },
+    @Query('tab') tab?: 'pending' | 'history',
+  ) {
+    return this.requestsService.getApprovalsQueue(caller, tab);
   }
 
   @Get(':id')
@@ -57,5 +67,35 @@ export class RequestsController {
     @Param('id') id: string,
   ) {
     return this.requestsService.submit(caller, id);
+  }
+
+  // Ra quyết định phê duyệt hoặc từ chối (Manager / HR / Admin)
+  @Post(':id/decision')
+  async decision(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') id: string,
+    @Body() dto: DecisionDto,
+  ) {
+    return this.requestsService.decision(caller, id, dto);
+  }
+
+  // Chuyển cấp thẩm định lên HR
+  @Post(':id/escalate')
+  async escalate(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') id: string,
+    @Body() dto: EscalateDto,
+  ) {
+    return this.requestsService.escalate(caller, id, dto);
+  }
+
+  // Trả lại đơn về DRAFT để nhân viên sửa đổi
+  @Post(':id/return')
+  async returnToDraft(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') id: string,
+    @Body() dto: ReturnDto,
+  ) {
+    return this.requestsService.returnToDraft(caller, id, dto);
   }
 }

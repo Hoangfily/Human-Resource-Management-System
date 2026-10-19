@@ -10,10 +10,12 @@ import {
   Prisma,
   RequestStatus,
   RequestType,
+  RiskLevel,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
+import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
 
 @Injectable()
 export class RequestsService {
@@ -414,6 +416,378 @@ export class RequestsService {
     });
 
     return this.findOne(caller, id);
+  }
+
+  // Phê duyệt hoặc từ chối yêu cầu (Manager / HR / Admin)
+  async decision(
+    caller: { id: string; role: string },
+    id: string,
+    dto: DecisionDto,
+  ) {
+    if (caller.role === 'EMPLOYEE') {
+      throw new ForbiddenException('Nhân viên không có quyền phê duyệt đơn');
+    }
+
+    if (
+      dto.status !== RequestStatus.APPROVED &&
+      dto.status !== RequestStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Quyết định phê duyệt chỉ có thể là APPROVED hoặc REJECTED',
+      );
+    }
+
+    if (dto.status === RequestStatus.REJECTED && !dto.reason?.trim()) {
+      throw new BadRequestException('Vui lòng nhập lý do từ chối yêu cầu');
+    }
+
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+      include: {
+        employee: { include: { department: true, position: true } },
+        approvals: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
+    }
+
+    // Quy tắc cấm tự phê duyệt theo Điều 8 Business Spec
+    if (request.employeeId === caller.id || request.createdById === caller.id) {
+      throw new ForbiddenException(
+        'Không được phép tự phê duyệt đơn của chính mình',
+      );
+    }
+
+    // Kiểm tra phạm vi phân quyền của Manager
+    if (caller.role === 'MANAGER') {
+      const isSubordinate =
+        request.employee.managerId === caller.id ||
+        request.approvals.some((a) => a.approverId === caller.id);
+
+      if (!isSubordinate) {
+        throw new ForbiddenException(
+          'Quản lý chỉ có quyền phê duyệt đơn của nhân viên trực thuộc hoặc đơn được phân công',
+        );
+      }
+    }
+
+    // Chỉ có thể duyệt đơn ở PENDING hoặc ESCALATED
+    if (
+      request.status !== RequestStatus.PENDING &&
+      request.status !== RequestStatus.ESCALATED
+    ) {
+      throw new BadRequestException(
+        `Không thể phê duyệt đơn đang ở trạng thái ${request.status}`,
+      );
+    }
+
+    const daysRequested = (request.computed as any)?.daysRequested || 1;
+    const leaveTypeId = (request.payload as any)?.leaveTypeId;
+    const previousStatus = request.status;
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Cập nhật Request status
+      await tx.request.update({
+        where: { id },
+        data: {
+          status: dto.status,
+        },
+      });
+
+      // 2. Cập nhật hoặc tạo bản ghi Approval
+      const pendingApproval = request.approvals.find(
+        (a) => a.status === ApprovalStatus.PENDING,
+      );
+
+      const decisionReason =
+        dto.reason?.trim() ||
+        (dto.status === RequestStatus.APPROVED
+          ? 'Phê duyệt chấp thuận yêu cầu'
+          : 'Từ chối yêu cầu');
+
+      if (pendingApproval) {
+        await tx.approval.update({
+          where: { id: pendingApproval.id },
+          data: {
+            status:
+              dto.status === RequestStatus.APPROVED
+                ? ApprovalStatus.APPROVED
+                : ApprovalStatus.REJECTED,
+            approverId: caller.id,
+            deciderType: ActorType.HUMAN,
+            decidedAt: new Date(),
+            reason: decisionReason,
+          },
+        });
+      } else {
+        await tx.approval.create({
+          data: {
+            requestId: id,
+            step: 1,
+            approverId: caller.id,
+            deciderType: ActorType.HUMAN,
+            status:
+              dto.status === RequestStatus.APPROVED
+                ? ApprovalStatus.APPROVED
+                : ApprovalStatus.REJECTED,
+            decidedAt: new Date(),
+            reason: decisionReason,
+          },
+        });
+      }
+
+      // 3. Ghi lịch sử thay đổi trạng thái
+      await tx.requestStatusHistory.create({
+        data: {
+          requestId: id,
+          fromStatus: previousStatus,
+          toStatus: dto.status,
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          reason: decisionReason,
+        },
+      });
+
+      // 4. Cập nhật LeaveBalance đối với đơn nghỉ phép
+      if (request.type === RequestType.LEAVE && leaveTypeId) {
+        if (dto.status === RequestStatus.APPROVED) {
+          // Trừ pendingDays, tăng usedDays
+          await tx.leaveBalance.updateMany({
+            where: {
+              employeeId: request.employeeId,
+              leaveTypeId,
+              year: 2026,
+            },
+            data: {
+              pendingDays: { decrement: daysRequested },
+              usedDays: { increment: daysRequested },
+            },
+          });
+        } else if (dto.status === RequestStatus.REJECTED) {
+          // Hoàn lại pendingDays
+          await tx.leaveBalance.updateMany({
+            where: {
+              employeeId: request.employeeId,
+              leaveTypeId,
+              year: 2026,
+            },
+            data: {
+              pendingDays: { decrement: daysRequested },
+            },
+          });
+        }
+      }
+
+      // 5. Ghi nhật ký kiểm toán AuditLog
+      await tx.auditLog.create({
+        data: {
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          action:
+            dto.status === RequestStatus.APPROVED
+              ? 'REQUEST_APPROVED'
+              : 'REQUEST_REJECTED',
+          entityType: 'Request',
+          entityId: id,
+          payload: {
+            before: { status: previousStatus },
+            after: { status: dto.status, reason: decisionReason },
+          },
+        },
+      });
+    });
+
+    return this.findOne(caller, id);
+  }
+
+  // Chuyển cấp thẩm định lên HR (Manager / HR / Admin)
+  async escalate(
+    caller: { id: string; role: string },
+    id: string,
+    dto: EscalateDto,
+  ) {
+    if (caller.role === 'EMPLOYEE') {
+      throw new ForbiddenException('Nhân viên không có quyền chuyển cấp thẩm định');
+    }
+
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+      include: {
+        employee: true,
+        approvals: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
+    }
+
+    if (request.status !== RequestStatus.PENDING) {
+      throw new BadRequestException('Chỉ có thể chuyển cấp thẩm định cho đơn ở trạng thái PENDING');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.request.update({
+        where: { id },
+        data: {
+          status: RequestStatus.ESCALATED,
+          riskLevel: dto.riskLevel || RiskLevel.HIGH,
+          escalationReason: dto.reason,
+        },
+      });
+
+      const pendingApproval = request.approvals.find(
+        (a) => a.status === ApprovalStatus.PENDING,
+      );
+      if (pendingApproval) {
+        await tx.approval.update({
+          where: { id: pendingApproval.id },
+          data: {
+            reason: `Chuyển cấp: ${dto.reason}`,
+          },
+        });
+      }
+
+      await tx.requestStatusHistory.create({
+        data: {
+          requestId: id,
+          fromStatus: RequestStatus.PENDING,
+          toStatus: RequestStatus.ESCALATED,
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          reason: dto.reason,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          action: 'REQUEST_ESCALATED',
+          entityType: 'Request',
+          entityId: id,
+          payload: { reason: dto.reason, riskLevel: dto.riskLevel },
+        },
+      });
+    });
+
+    return this.findOne(caller, id);
+  }
+
+  // Trả lại đơn về DRAFT để nhân viên sửa đổi / bổ sung thông tin
+  async returnToDraft(
+    caller: { id: string; role: string },
+    id: string,
+    dto: ReturnDto,
+  ) {
+    if (caller.role === 'EMPLOYEE') {
+      throw new ForbiddenException('Nhân viên không có quyền trả lại đơn');
+    }
+
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
+    }
+
+    if (request.status !== RequestStatus.ESCALATED) {
+      throw new BadRequestException('Chỉ có thể trả lại đơn đang ở trạng thái ESCALATED');
+    }
+
+    const daysRequested = (request.computed as any)?.daysRequested || 1;
+    const leaveTypeId = (request.payload as any)?.leaveTypeId;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.request.update({
+        where: { id },
+        data: {
+          status: RequestStatus.DRAFT,
+        },
+      });
+
+      await tx.requestStatusHistory.create({
+        data: {
+          requestId: id,
+          fromStatus: RequestStatus.ESCALATED,
+          toStatus: RequestStatus.DRAFT,
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          reason: dto.reason,
+        },
+      });
+
+      // Hoàn lại pendingDays
+      if (request.type === RequestType.LEAVE && leaveTypeId) {
+        await tx.leaveBalance.updateMany({
+          where: {
+            employeeId: request.employeeId,
+            leaveTypeId,
+            year: 2026,
+          },
+          data: {
+            pendingDays: { decrement: daysRequested },
+          },
+        });
+      }
+    });
+
+    return this.findOne(caller, id);
+  }
+
+  // Hàng đợi phê duyệt dành cho Quản lý & HR
+  async getApprovalsQueue(
+    caller: { id: string; role: string },
+    tab?: 'pending' | 'history',
+  ) {
+    if (caller.role === 'EMPLOYEE') {
+      throw new ForbiddenException('Nhân viên không có quyền truy cập hàng đợi phê duyệt');
+    }
+
+    const where: Prisma.RequestWhereInput = {
+      // Cấm hiển thị đơn do chính mình tạo trong hàng đợi duyệt (cấm tự duyệt)
+      employeeId: { not: caller.id },
+      createdById: { not: caller.id },
+    };
+
+    if (caller.role === 'MANAGER') {
+      const subordinates = await this.prisma.employee.findMany({
+        where: { managerId: caller.id },
+        select: { id: true },
+      });
+      const subordinateIds = subordinates.map((s) => s.id);
+
+      where.OR = [
+        { employeeId: { in: subordinateIds } },
+        { approvals: { some: { approverId: caller.id } } },
+      ];
+    }
+
+    if (tab === 'history') {
+      where.status = {
+        in: [RequestStatus.APPROVED, RequestStatus.REJECTED],
+      };
+    } else {
+      where.status = {
+        in: [RequestStatus.PENDING, RequestStatus.ESCALATED],
+      };
+    }
+
+    const requests = await this.prisma.request.findMany({
+      where,
+      include: {
+        employee: { include: { department: true, position: true } },
+        approvals: { include: { approver: true } },
+        statusHistory: { include: { actor: true }, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return requests.map((r) => this.formatRequest(r));
   }
 
   // Định dạng dữ liệu chuẩn hóa trả về cho Frontend

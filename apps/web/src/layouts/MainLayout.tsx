@@ -35,6 +35,8 @@ import { UserRole } from '@hr-agent/shared';
 import { useAuth } from '../features/auth/AuthContext';
 import { RoleTag } from '../components/common';
 import { isMockEnabled, setMockEnabled } from '../lib/mock-data';
+import apiClient from '../lib/api-client';
+import { RequestItem } from '../types';
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -47,6 +49,29 @@ export const MainLayout: React.FC = () => {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mockActive, setMockActive] = useState(isMockEnabled());
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
+
+  const isManagerOrAdmin =
+    user?.role === UserRole.Manager ||
+    user?.role === UserRole.HrAdmin ||
+    user?.role === UserRole.Admin;
+
+  const isHrOrAdmin =
+    user?.role === UserRole.HrAdmin || user?.role === UserRole.Admin;
+
+  React.useEffect(() => {
+    if (isManagerOrAdmin) {
+      apiClient
+        .get<RequestItem[]>('/requests/approvals/queue?tab=pending')
+        .then((res) => {
+          const data = res as unknown as RequestItem[];
+          if (Array.isArray(data)) {
+            setPendingApprovalsCount(data.length);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isManagerOrAdmin, location.pathname]);
 
   const handleToggleMock = () => {
     const next = !mockActive;
@@ -64,15 +89,6 @@ export const MainLayout: React.FC = () => {
     message.success('Đã đăng xuất khỏi hệ thống.');
     navigate('/login', { replace: true });
   };
-
-  // Xác định các quyền truy cập
-  const isManagerOrAdmin =
-    user?.role === UserRole.Manager ||
-    user?.role === UserRole.HrAdmin ||
-    user?.role === UserRole.Admin;
-
-  const isHrOrAdmin =
-    user?.role === UserRole.HrAdmin || user?.role === UserRole.Admin;
 
   // Xây dựng danh sách menu theo quyền hạn (Dark Sidebar phong cách thiết kế)
   const menuItems = [
@@ -104,7 +120,7 @@ export const MainLayout: React.FC = () => {
             label: (
               <Link to="/approvals" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>Phê duyệt đơn</span>
-                <Badge count={2} size="small" style={{ backgroundColor: '#10b981' }} />
+                <Badge count={pendingApprovalsCount} size="small" style={{ backgroundColor: '#10b981' }} />
               </Link>
             ),
           },

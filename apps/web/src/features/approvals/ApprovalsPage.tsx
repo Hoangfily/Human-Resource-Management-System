@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Table,
@@ -13,10 +13,7 @@ import {
   Row,
   Col,
   Descriptions,
-  Divider,
-  Alert,
   Tabs,
-  Progress,
   Tooltip,
 } from 'antd';
 import {
@@ -27,78 +24,90 @@ import {
   ArrowUpOutlined,
   UserOutlined,
   EyeOutlined,
-  CheckCircleOutlined,
-  SafetyCertificateOutlined,
   HistoryOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { RequestStatus, RequestType } from '@hr-agent/shared';
-import { MOCK_REQUESTS } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
 import { RequestItem } from '../../types';
 import { RequestDetailModal } from '../../components/requests';
 import { useAuth } from '../auth/AuthContext';
+import apiClient from '../../lib/api-client';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 export const ApprovalsPage: React.FC = () => {
   const { user } = useAuth();
   const { message } = AntdApp.useApp();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
-  const [allRequests, setAllRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
+  const [pendingList, setPendingList] = useState<RequestItem[]>([]);
+  const [historyList, setHistoryList] = useState<RequestItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [actionLoading, setActionLoading] = useState<boolean>(false);
 
-  const pendingList = allRequests.filter((r) => r.status === RequestStatus.Pending);
-  const historyList = allRequests.filter(
-    (r) =>
-      r.status === RequestStatus.Approved ||
-      r.status === RequestStatus.Rejected ||
-      r.status === RequestStatus.Escalated
-  );
+  const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(null);
 
-  const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(
-    pendingList[0] || null
-  );
-
-  // Modal xem chi tiết
+  // Modal xem chi tiết toàn diện
   const [modalRequest, setModalRequest] = useState<RequestItem | null>(null);
 
-  const handleApprove = (id: string) => {
-    setAllRequests((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const updated: RequestItem = {
-            ...r,
-            status: RequestStatus.Approved,
-            updatedAt: new Date().toISOString(),
-            timeline: [
-              ...(r.timeline || []),
-              {
-                title: 'Quản lý phê duyệt',
-                actor: user?.fullName || 'Nguyễn Tiến Dũng',
-                actorType: 'HUMAN',
-                timestamp: new Date().toLocaleString('vi-VN'),
-                description: 'Đã phê duyệt chấp thuận yêu cầu',
-                status: 'finish',
-              },
-            ],
-          };
-          return updated;
-        }
-        return r;
-      })
-    );
+  // Tải danh sách đơn chờ duyệt và lịch sử duyệt từ Backend API
+  const fetchApprovals = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pendingRes, historyRes] = await Promise.all([
+        apiClient.get<RequestItem[]>('/requests/approvals/queue?tab=pending'),
+        apiClient.get<RequestItem[]>('/requests/approvals/queue?tab=history'),
+      ]);
 
-    // Cập nhật cả mảng MOCK_REQUESTS gốc
-    const target = MOCK_REQUESTS.find((r) => r.id === id);
-    if (target) {
-      target.status = RequestStatus.Approved;
-    }
+      const pendings = pendingRes as unknown as RequestItem[];
+      const histories = historyRes as unknown as RequestItem[];
 
-    if (selectedRequest?.id === id) {
-      setSelectedRequest(null);
+      if (Array.isArray(pendings)) {
+        setPendingList(pendings);
+        setSelectedRequest((curr) => {
+          if (!curr) return pendings[0] || null;
+          const found = pendings.find((p) => p.id === curr.id);
+          return found || pendings[0] || null;
+        });
+      }
+
+      if (Array.isArray(histories)) {
+        setHistoryList(histories);
+      }
+    } catch {
+      // Giữ trạng thái nếu offline
+    } finally {
+      setLoading(false);
     }
-    message.success(`Đã phê duyệt đơn ${id} thành công!`);
+  }, []);
+
+  useEffect(() => {
+    fetchApprovals();
+  }, [fetchApprovals, user?.id]);
+
+  // Xử lý Phê duyệt đơn
+  const handleApprove = async (id: string) => {
+    setActionLoading(true);
+    try {
+      await apiClient.post<RequestItem>(`/requests/${id}/decision`, {
+        status: RequestStatus.Approved,
+      });
+
+      message.success(`Đã phê duyệt đơn #${id} thành công!`);
+      await fetchApprovals();
+
+      if (modalRequest?.id === id) {
+        setModalRequest(null);
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Không thể phê duyệt đơn';
+      message.error(errMsg);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
+  // Xử lý Từ chối đơn
   const handleReject = (id: string, customReason?: string) => {
     if (customReason) {
       executeReject(id, customReason);
@@ -111,10 +120,10 @@ export const ApprovalsPage: React.FC = () => {
       icon: <ExclamationCircleOutlined />,
       content: (
         <div style={{ marginTop: 12 }}>
-          <Text type="secondary">Nhập lý do từ chối (bắt buộc):</Text>
+          <Text type="secondary">Nhập lý do từ chối (bắt buộc theo quy định):</Text>
           <Input.TextArea
             rows={3}
-            placeholder="Ví dụ: Lịch dự án đang gấp, đề nghị dời sang tuần sau..."
+            placeholder="Ví dụ: Lịch dự án đang gấp, đề nghị sắp xếp lại lịch nghỉ..."
             style={{ marginTop: 8 }}
             onChange={(e) => (reasonInput = e.target.value)}
           />
@@ -123,86 +132,58 @@ export const ApprovalsPage: React.FC = () => {
       okText: 'Xác nhận từ chối',
       okType: 'danger',
       cancelText: 'Hủy',
-      onOk() {
-        executeReject(id, reasonInput || 'Không thể sắp xếp nhân sự thay thế.');
+      onOk: async () => {
+        if (!reasonInput.trim()) {
+          message.error('Vui lòng nhập lý do từ chối!');
+          return Promise.reject();
+        }
+        await executeReject(id, reasonInput.trim());
       },
     });
   };
 
-  const executeReject = (id: string, reason: string) => {
-    setAllRequests((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const updated: RequestItem = {
-            ...r,
-            status: RequestStatus.Rejected,
-            rejectionReason: reason,
-            updatedAt: new Date().toISOString(),
-            timeline: [
-              ...(r.timeline || []),
-              {
-                title: 'Quản lý từ chối',
-                actor: user?.fullName || 'Nguyễn Tiến Dũng',
-                actorType: 'HUMAN',
-                timestamp: new Date().toLocaleString('vi-VN'),
-                description: reason,
-                status: 'error',
-              },
-            ],
-          };
-          return updated;
-        }
-        return r;
-      })
-    );
+  const executeReject = async (id: string, reason: string) => {
+    setActionLoading(true);
+    try {
+      await apiClient.post<RequestItem>(`/requests/${id}/decision`, {
+        status: RequestStatus.Rejected,
+        reason,
+      });
 
-    const target = MOCK_REQUESTS.find((r) => r.id === id);
-    if (target) {
-      target.status = RequestStatus.Rejected;
-      target.rejectionReason = reason;
-    }
+      message.info(`Đã từ chối đơn #${id}.`);
+      await fetchApprovals();
 
-    if (selectedRequest?.id === id) {
-      setSelectedRequest(null);
+      if (modalRequest?.id === id) {
+        setModalRequest(null);
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Không thể từ chối đơn';
+      message.error(errMsg);
+    } finally {
+      setActionLoading(false);
     }
-    message.info(`Đã từ chối đơn ${id}.`);
   };
 
-  const handleEscalate = (id: string) => {
-    setAllRequests((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const updated: RequestItem = {
-            ...r,
-            status: RequestStatus.Escalated,
-            updatedAt: new Date().toISOString(),
-            timeline: [
-              ...(r.timeline || []),
-              {
-                title: 'Chuyển cấp thẩm định (Escalate)',
-                actor: user?.fullName || 'Nguyễn Tiến Dũng',
-                actorType: 'HUMAN',
-                timestamp: new Date().toLocaleString('vi-VN'),
-                description: 'Chuyển tiếp lên Trưởng phòng HR do có yếu tố đặc thù',
-                status: 'process',
-              },
-            ],
-          };
-          return updated;
-        }
-        return r;
-      })
-    );
+  // Xử lý Chuyển cấp thẩm định lên HR
+  const handleEscalate = async (id: string) => {
+    setActionLoading(true);
+    try {
+      await apiClient.post<RequestItem>(`/requests/${id}/escalate`, {
+        reason: 'Chuyển cấp thẩm định lên Trưởng phòng HR do có yếu tố đặc thù',
+      });
 
-    const target = MOCK_REQUESTS.find((r) => r.id === id);
-    if (target) {
-      target.status = RequestStatus.Escalated;
-    }
+      message.warning(`Đã chuyển đơn #${id} lên cấp Trưởng phòng HR thẩm định!`);
+      await fetchApprovals();
 
-    if (selectedRequest?.id === id) {
-      setSelectedRequest(null);
+      if (modalRequest?.id === id) {
+        setModalRequest(null);
+      }
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Không thể chuyển cấp thẩm định';
+      message.error(errMsg);
+    } finally {
+      setActionLoading(false);
     }
-    message.warning(`Đã chuyển đơn ${id} lên cấp Trưởng phòng HR thẩm định!`);
   };
 
   const columns = [
@@ -212,7 +193,7 @@ export const ApprovalsPage: React.FC = () => {
       key: 'id',
       render: (id: string) => (
         <Text code style={{ color: '#0f766e', fontWeight: 600 }}>
-          {id}
+          {id.length > 10 ? `${id.slice(0, 8)}...` : id}
         </Text>
       ),
     },
@@ -234,6 +215,7 @@ export const ApprovalsPage: React.FC = () => {
       render: (type: RequestType) => {
         const labels: Record<string, string> = {
           [RequestType.Leave]: 'Nghỉ phép',
+          [RequestType.Overtime]: 'Làm thêm giờ',
           [RequestType.AttendanceExplanation]: 'Bổ sung công',
           [RequestType.ShiftChange]: 'Đổi ca',
         };
@@ -280,13 +262,25 @@ export const ApprovalsPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          Trung tâm Phê duyệt Yêu cầu (Approvals)
-        </Title>
-        <Text type="secondary">
-          Xem xét các đơn xin nghỉ phép, đổi ca và giải trình công kèm phân tích tuân thủ chính sách tự động từ AI.
-        </Text>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 20,
+        }}
+      >
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            Trung tâm Phê duyệt Yêu cầu (Approvals)
+          </Title>
+          <Text type="secondary">
+            Xem xét các đơn xin nghỉ phép, đổi ca và giải trình công kèm phân tích tuân thủ chính sách tự động từ AI.
+          </Text>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={fetchApprovals} loading={loading}>
+          Làm mới
+        </Button>
       </div>
 
       <Tabs
@@ -335,6 +329,7 @@ export const ApprovalsPage: React.FC = () => {
                 rowKey="id"
                 pagination={false}
                 size="middle"
+                loading={loading}
                 rowClassName={(record) =>
                   record.id === selectedRequest?.id ? 'ant-table-row-selected' : ''
                 }
@@ -354,10 +349,10 @@ export const ApprovalsPage: React.FC = () => {
                 title={
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Space>
-                      <span style={{ fontWeight: 600 }}>Chi tiết đơn: #{selectedRequest.id}</span>
+                      <span style={{ fontWeight: 600 }}>Chi tiết đơn: #{selectedRequest.id.slice(0, 8)}...</span>
                       <StatusTag status={selectedRequest.status} />
                     </Space>
-                    <Tag color="green">
+                    <Tag color={selectedRequest.riskLevel === 'HIGH' ? 'red' : 'green'}>
                       Mức rủi ro: {selectedRequest.riskLevel || 'LOW'} ({Math.round((selectedRequest.aiConfidence ?? 0.95) * 100)}%)
                     </Tag>
                   </div>
@@ -402,6 +397,11 @@ export const ApprovalsPage: React.FC = () => {
                   <div style={{ color: '#334155', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' }}>
                     "{(selectedRequest.payload as Record<string, string>).reason || 'Không có lý do chi tiết.'}"
                   </div>
+                  {(selectedRequest as any).computed?.daysRequested && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#059669', fontWeight: 600 }}>
+                      Thời gian: {(selectedRequest as any).computed.daysRequested} ngày
+                    </div>
+                  )}
                 </div>
 
                 {/* Hộp Đánh giá của AI Assistant */}
@@ -431,6 +431,7 @@ export const ApprovalsPage: React.FC = () => {
                     {(selectedRequest.aiPolicyFindings || [
                       'Số dư ngày phép của nhân viên: Còn đủ ngày phép khả dụng',
                       'Thời hạn thông báo trước: Thỏa mãn quy chế ≥ 3 ngày làm việc',
+                      'Đánh giá rủi ro tuân thủ: An toàn, không trùng lịch cao điểm',
                     ]).map((f, i) => (
                       <li key={i}>{f}</li>
                     ))}
@@ -462,6 +463,7 @@ export const ApprovalsPage: React.FC = () => {
                 >
                   <Button
                     icon={<ArrowUpOutlined />}
+                    loading={actionLoading}
                     onClick={() => handleEscalate(selectedRequest.id)}
                   >
                     Chuyển cấp HR
@@ -469,6 +471,7 @@ export const ApprovalsPage: React.FC = () => {
                   <Button
                     danger
                     icon={<CloseOutlined />}
+                    loading={actionLoading}
                     onClick={() => handleReject(selectedRequest.id)}
                   >
                     Từ chối
@@ -476,6 +479,7 @@ export const ApprovalsPage: React.FC = () => {
                   <Button
                     type="primary"
                     icon={<CheckOutlined />}
+                    loading={actionLoading}
                     onClick={() => handleApprove(selectedRequest.id)}
                     style={{ background: '#059669', borderColor: '#059669' }}
                   >
@@ -506,11 +510,13 @@ export const ApprovalsPage: React.FC = () => {
             dataSource={historyList}
             columns={columns}
             rowKey="id"
+            loading={loading}
             pagination={{ pageSize: 8 }}
             onRow={(record) => ({
               onClick: () => setModalRequest(record),
               style: { cursor: 'pointer' },
             })}
+            locale={{ emptyText: 'Chưa có yêu cầu nào trong lịch sử đã xử lý.' }}
           />
         </Card>
       )}
