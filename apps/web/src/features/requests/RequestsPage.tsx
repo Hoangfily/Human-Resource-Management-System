@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   Table,
@@ -34,8 +34,9 @@ import {
 import { RequestStatus, RequestType } from '@hr-agent/shared';
 import { MOCK_REQUESTS, MOCK_LEAVE_BALANCE } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
-import { RequestItem } from '../../types';
+import { RequestItem, LeaveBalanceResponse } from '../../types';
 import { RequestDetailModal } from '../../components/requests';
+import apiClient from '../../lib/api-client';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -54,8 +55,23 @@ export const RequestsPage: React.FC = () => {
   // Form states cho tạo đơn mới
   const [selectedType, setSelectedType] = useState<RequestType>(RequestType.Leave);
   const [daysCount, setDaysCount] = useState<number>(2);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalanceResponse>(MOCK_LEAVE_BALANCE);
 
-  const annualLeave = MOCK_LEAVE_BALANCE.balances.find((b) => b.leaveType === 'ANNUAL');
+  useEffect(() => {
+    apiClient
+      .get<LeaveBalanceResponse>('/leave/balance')
+      .then((res) => {
+        const data = res as unknown as LeaveBalanceResponse;
+        if (data && data.balances && data.balances.length > 0) {
+          setLeaveBalance(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const annualLeave = leaveBalance.balances.find(
+    (b: any) => b.leaveType === 'ANNUAL' || b.leaveTypeCode === 'ANNUAL',
+  );
 
   const handleCreateSubmit = (values: { reason: string; dates?: unknown }) => {
     const newReq: RequestItem = {

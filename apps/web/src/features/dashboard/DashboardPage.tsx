@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Statistic, Typography, Button, Space, Table, Alert, Progress, Tag } from 'antd';
 import {
   CalendarOutlined,
@@ -15,15 +15,47 @@ import { useAuth } from '../auth/AuthContext';
 import { MOCK_LEAVE_BALANCE, MOCK_REQUESTS } from '../../lib/mock-data';
 import { StatusTag } from '../../components/common';
 import { RequestType } from '@hr-agent/shared';
+import apiClient from '../../lib/api-client';
+import { LeaveBalanceResponse } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalanceResponse>(MOCK_LEAVE_BALANCE);
+  const [profile, setProfile] = useState<any>(null);
 
-  const annualLeave = MOCK_LEAVE_BALANCE.balances.find((b) => b.leaveType === 'ANNUAL');
-  const sickLeave = MOCK_LEAVE_BALANCE.balances.find((b) => b.leaveType === 'SICK');
+  useEffect(() => {
+    // Tải số dư quỹ phép thực tế từ PostgreSQL
+    apiClient
+      .get<LeaveBalanceResponse>('/leave/balance')
+      .then((res) => {
+        const data = res as unknown as LeaveBalanceResponse;
+        if (data && data.balances && data.balances.length > 0) {
+          setLeaveBalance(data);
+        }
+      })
+      .catch(() => {});
+
+    // Tải hồ sơ nhân viên chi tiết từ Backend
+    apiClient
+      .get<any>('/employees/me')
+      .then((res) => {
+        const data = res as unknown as any;
+        if (data) {
+          setProfile(data);
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const annualLeave = leaveBalance.balances.find(
+    (b: any) => b.leaveType === 'ANNUAL' || b.leaveTypeCode === 'ANNUAL',
+  );
+  const sickLeave = leaveBalance.balances.find(
+    (b: any) => b.leaveType === 'SICK' || b.leaveTypeCode === 'SICK',
+  );
   const pendingRequests = MOCK_REQUESTS.filter((r) => r.status === 'PENDING');
 
   const columns = [
@@ -78,7 +110,9 @@ export const DashboardPage: React.FC = () => {
               Chào buổi sáng, {user?.fullName}! 👋
             </Title>
             <Paragraph style={{ color: 'rgba(255, 255, 255, 0.88)', margin: '6px 0 0', fontSize: 14 }}>
-              Hôm nay là Thứ Tư, 07/10/2026 • {user?.departmentName} ({user?.positionName})
+              {profile?.departmentName || user?.departmentName} • {profile?.positionName || user?.positionName}
+              {profile?.managerName ? ` • Quản lý trực tiếp: ${profile.managerName}` : ''}
+              {profile?.shiftTime ? ` • Ca: ${profile.shiftTime}` : ''}
             </Paragraph>
           </Col>
           <Col xs={24} md={8} style={{ textAlign: 'right' }}>
