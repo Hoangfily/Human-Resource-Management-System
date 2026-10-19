@@ -7,10 +7,14 @@
     "packages/shared"
   ],
   "scripts": {
+    "dev": "concurrently -n \"API,WEB\" -c \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:web": "npm --workspace @hr-agent/web run dev",
     "build:web": "npm --workspace @hr-agent/web run build",
     "dev:api": "npm --workspace @hr-agent/api run start:dev",
     "build:api": "npm --workspace @hr-agent/api run build",
     "seed:api": "npm --workspace @hr-agent/api run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
   }
 }
