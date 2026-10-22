@@ -1,0 +1,128 @@
+"""Mock of the apps/api endpoints the AI uses (docs/01-api-contract.md).
+
+Run by hand: `uvicorn app.mock_api.server:app --port 3001`
+"""
+
+from datetime import date
+from typing import Any
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+
+from .fixtures import MockStore, demo_store
+
+
+class MockApiError(Exception):
+    def __init__(self, status: int, code: str, message: str) -> None:
+        self.status, self.code, self.message = status, code, message
+
+
+def create_mock_api(store: MockStore) -> FastAPI:
+    app = FastAPI(title="Mock HR API")
+
+    @app.exception_handler(MockApiError)
+    async def _error(_: Request, exc: MockApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"code": exc.code, "message": exc.message, "requestId": "mock"},
+        )
+
+    @app.middleware("http")
+    async def _inject_failures(request: Request, call_next: Any) -> Any:
+        if store.fail_next:
+            status = store.fail_next.pop(0)
+            return JSONResponse(status_code=status, content={"code": "INJECTED", "message": "fail_next"})
+        return await call_next(request)
+
+    def auth(authorization: str = Header(default="")) -> None:
+        if authorization != f"Bearer {store.token}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    api = FastAPI(dependencies=[Depends(auth)])
+    app.mount("/api/v1", api)
+    api.add_exception_handler(MockApiError, _error)  # type: ignore[arg-type]
+
+    def find_request(request_id: str) -> dict[str, Any]:
+        if request_id not in store.requests:
+            raise MockApiError(404, "NOT_FOUND", f"Request {request_id} not found")
+        return store.requests[request_id]
+
+    @api.get("/requests/{request_id}")
+    def get_request(request_id: str) -> dict[str, Any]:
+        return find_request(request_id)
+
+    @api.get("/requests")
+    def list_requests(
+        employeeId: str, type: str | None = None, since: date | None = Query(None, alias="from")
+    ) -> dict[str, Any]:
+        items = [
+            r
+            for r in store.requests.values()
+            if r["employeeId"] == employeeId
+            and (type is None or r["type"] == type)
+            and (since is None or r["createdAt"][:10] >= since.isoformat())
+        ]
+        return {"items": items, "nextCursor": None}
+
+    @api.get("/employees/{employee_id}")
+    def get_employee(employee_id: str) -> dict[str, Any]:
+        if employee_id not in store.employees:
+            raise MockApiError(404, "NOT_FOUND", f"Employee {employee_id} not found")
+        return store.employees[employee_id]
+
+    @api.get("/leave/balance")
+    def get_balance(employeeId: str) -> dict[str, Any]:
+        return {"balances": store.balances.get(employeeId, [])}
+
+    @api.get("/policies")
+    def get_policies() -> dict[str, Any]:
+        return store.policies
+
+    @api.get("/autonomy-config")
+    def get_autonomy() -> dict[str, Any]:
+        return {"items": list(store.autonomy.values())}
+
+    @api.post("/requests/{request_id}/ai-decision")
+    async def ai_decision(request_id: str, request: Request) -> dict[str, Any]:
+        body = await request.json()
+        store.writes.append({"endpoint": "ai-decision", "requestId": request_id, "body": body})
+        req = find_request(request_id)
+        if req["status"] != "PENDING":
+            raise MockApiError(409, "INVALID_TRANSITION", f"Request is {req['status']}")
+
+        # Same re-check the real API must do (docs/05-business-spec.md §7.3).
+        config = store.autonomy.get(req["type"], {"level": "SUGGEST_ONLY", "minConfidence": 1})
+        allowed = {
+            "SUGGEST_ONLY": set(),
+            "AUTO_APPROVE_LOW_RISK": {"APPROVED"},
+            "AUTO_DECIDE_LOW_RISK": {"APPROVED", "REJECTED"},
+        }[config["level"]]
+        problems = []
+        if body["decision"] not in allowed:
+            problems.append(f"{config['level']} không cho phép {body['decision']}")
+        if body["riskLevel"] != "LOW":
+            problems.append(f"riskLevel {body['riskLevel']}")
+        if body["confidence"] < config["minConfidence"]:
+            problems.append(f"confidence {body['confidence']} < {config['minConfidence']}")
+
+        if problems:
+            req["status"] = "ESCALATED"
+            reason = "; ".join(problems)
+            return {"id": request_id, "status": "ESCALATED", "applied": False, "escalationReason": reason}
+        req["status"] = body["decision"]
+        return {"id": request_id, "status": req["status"], "applied": True}
+
+    @api.post("/requests/{request_id}/escalate")
+    async def escalate(request_id: str, request: Request) -> dict[str, Any]:
+        body = await request.json()
+        store.writes.append({"endpoint": "escalate", "requestId": request_id, "body": body})
+        req = find_request(request_id)
+        if req["status"] not in ("PENDING", "DRAFT"):
+            raise MockApiError(409, "INVALID_TRANSITION", f"Request is {req['status']}")
+        req["status"] = "ESCALATED"
+        return {"id": request_id, "status": "ESCALATED", "applied": True}
+
+    return app
+
+
+app =create_mock_api(demo_store())
