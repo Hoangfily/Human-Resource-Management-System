@@ -1,22 +1,44 @@
 import React from 'react';
 import { Tag } from 'antd';
-import { RequestStatus } from '@hr-agent/shared';
+import { formatRequestStatus } from '../../lib/display-mappers';
 
 interface StatusTagProps {
-  status: RequestStatus | string;
+  status: string;
+  showDot?: boolean;
 }
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  [RequestStatus.Draft]: { color: 'default', label: 'Bản nháp' },
-  [RequestStatus.Pending]: { color: 'processing', label: 'Chờ duyệt' },
-  [RequestStatus.Approved]: { color: 'success', label: 'Đã duyệt' },
-  [RequestStatus.Rejected]: { color: 'error', label: 'Bị từ chối' },
-  [RequestStatus.Cancelled]: { color: 'warning', label: 'Đã hủy' },
-};
+export const StatusTag: React.FC<StatusTagProps> = ({ status, showDot = true }) => {
+  const meta = formatRequestStatus(status);
 
-export const StatusTag: React.FC<StatusTagProps> = ({ status }) => {
-  const config = statusConfig[status] || { color: 'default', label: status };
-  return <Tag color={config.color}>{config.label}</Tag>;
+  return (
+    <Tag
+      style={{
+        backgroundColor: meta.bg,
+        borderColor: meta.border,
+        color: meta.tagColor,
+        fontWeight: 600,
+        fontSize: 12,
+        borderRadius: 6,
+        padding: '2px 10px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      {showDot && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            backgroundColor: meta.tagColor,
+            display: 'inline-block',
+          }}
+        />
+      )}
+      {meta.label}
+    </Tag>
+  );
 };
 
 export default StatusTag;

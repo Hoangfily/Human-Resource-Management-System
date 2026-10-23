@@ -7,6 +7,7 @@ import {
 import {
   ActorType,
   ApprovalStatus,
+  AutonomyLevel,
   Prisma,
   RequestStatus,
   RequestType,
@@ -16,6 +17,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
 import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
+import { AiDecisionDto } from './dto/ai-decision.dto';
 
 @Injectable()
 export class RequestsService {
@@ -828,6 +830,353 @@ export class RequestsService {
       submittedAt: req.submittedAt,
       createdAt: req.createdAt,
       updatedAt: req.updatedAt,
+    };
+  }
+
+  async checkRequest(id: string, caller: { id: string; role: string }) {
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+      include: {
+        employee: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Không tìm thấy yêu cầu');
+    }
+
+    if (caller.role === 'EMPLOYEE' && request.employeeId !== caller.id && request.createdById !== caller.id) {
+      throw new ForbiddenException('Bạn không có quyền kiểm tra đơn này');
+    }
+
+    const payload = (request.payload as Record<string, any>) || {};
+    const missingFields: string[] = [];
+    const violations: Array<{ rule: string; outcome: 'INVALID' | 'REJECT' | 'ESCALATE'; message: string }> = [];
+
+    if (request.type === RequestType.LEAVE) {
+      if (!payload.leaveTypeId && !payload.leaveType) missingFields.push('leaveTypeId');
+      if (!payload.startDate) missingFields.push('startDate');
+      if (!payload.endDate) missingFields.push('endDate');
+      if (!payload.reason) missingFields.push('reason');
+    } else if (request.type === RequestType.OVERTIME) {
+      if (!payload.date) missingFields.push('date');
+      if (!payload.startTime) missingFields.push('startTime');
+      if (!payload.endTime) missingFields.push('endTime');
+      if (!payload.reason) missingFields.push('reason');
+    } else if (request.type === RequestType.ATTENDANCE_EXPLANATION) {
+      if (!payload.date) missingFields.push('date');
+      if (!payload.issue) missingFields.push('issue');
+      if (!payload.explanation && !payload.reason) missingFields.push('explanation');
+    } else if (request.type === RequestType.SHIFT_CHANGE) {
+      if (!payload.scheduleId) missingFields.push('scheduleId');
+      if (!payload.newDate) missingFields.push('newDate');
+      if (!payload.newShiftTemplateId) missingFields.push('newShiftTemplateId');
+      if (!payload.reason) missingFields.push('reason');
+    }
+
+    if (request.type === RequestType.LEAVE) {
+      const daysRequested = Number(payload.daysCount || (request.computed as any)?.daysRequested || 1);
+
+      if (payload.startDate) {
+        const start = new Date(payload.startDate);
+        const now = new Date();
+        const diffMs = start.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffMs / (1000 * 3600 * 24));
+
+        if (daysRequested <= 2 && diffDays < 3) {
+          violations.push({
+            rule: 'LEAVE.NOTICE_DAYS',
+            outcome: 'ESCALATE',
+            message: `Báo trước ${diffDays} ngày, quy chế yêu cầu tối thiểu 3 ngày làm việc đối với đơn nghỉ 1-2 ngày.`,
+          });
+        } else if (daysRequested > 2 && diffDays < 7) {
+          violations.push({
+            rule: 'LEAVE.NOTICE_DAYS',
+            outcome: 'ESCALATE',
+            message: `Báo trước ${diffDays} ngày, quy chế yêu cầu tối thiểu 7 ngày làm việc đối với đơn nghỉ trên 2 ngày.`,
+          });
+        }
+      }
+
+      const leaveTypeCode = payload.leaveType || 'ANNUAL';
+      const balance = await this.prisma.leaveBalance.findFirst({
+        where: {
+          employeeId: request.employeeId,
+          leaveType: { code: leaveTypeCode },
+          year: 2026,
+        },
+      });
+
+      if (balance) {
+        const available = balance.totalDays - balance.usedDays - balance.pendingDays;
+        if (available < 0) {
+          violations.push({
+            rule: 'LEAVE.BALANCE_CHECK',
+            outcome: 'REJECT',
+            message: `Số ngày phép khả dụng (${available}) không đủ để đáp ứng yêu cầu (${daysRequested} ngày).`,
+          });
+        }
+      }
+
+      if (leaveTypeCode === 'SICK' && daysRequested > 2 && (!request.attachments || request.attachments.length === 0)) {
+        violations.push({
+          rule: 'LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS',
+          outcome: 'ESCALATE',
+          message: 'Nghỉ ốm trên 2 ngày làm việc bắt buộc đính kèm giấy chứng nhận khám bệnh của cơ sở y tế.',
+        });
+      }
+    } else if (request.type === RequestType.OVERTIME) {
+      const durationHours = Number(payload.durationHours || 3);
+      if (durationHours > 4) {
+        violations.push({
+          rule: 'OT.DAILY_LIMIT',
+          outcome: 'REJECT',
+          message: 'Số giờ làm thêm trong ngày vượt quá trần 4 giờ (tổng giờ làm việc > 12h/ngày).',
+        });
+      }
+    }
+
+    let status = request.status;
+    if (violations.some((v) => v.outcome === 'REJECT')) {
+      status = RequestStatus.REJECTED;
+    } else if (violations.some((v) => v.outcome === 'ESCALATE')) {
+      status = RequestStatus.ESCALATED;
+    }
+
+    return {
+      valid: missingFields.length === 0 && !violations.some((v) => v.outcome === 'REJECT'),
+      missingFields,
+      violations,
+      status,
+      policyVersion: '2026.10-draft',
+    };
+  }
+
+  async aiDecision(id: string, dto: AiDecisionDto, caller: { id: string; role: string }) {
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+      include: {
+        employee: true,
+        createdBy: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Không tìm thấy yêu cầu');
+    }
+
+    if (request.status !== RequestStatus.PENDING) {
+      throw new BadRequestException(
+        `AI chỉ có thể đánh giá đơn ở trạng thái Chờ duyệt (PENDING), trạng thái hiện tại là ${request.status}`,
+      );
+    }
+
+    const autonomyConfig = await this.prisma.autonomyConfig.findUnique({
+      where: { requestType: request.type },
+    });
+
+    const level = autonomyConfig?.level ?? AutonomyLevel.AUTO_APPROVE_LOW_RISK;
+    const minConfidence = autonomyConfig?.minConfidence ?? 0.85;
+
+    let mustEscalate = false;
+    let escalationReason = '';
+
+    if (
+      request.employee?.role === 'HR' ||
+      request.employee?.role === 'ADMIN' ||
+      request.createdBy?.role === 'HR' ||
+      request.createdBy?.role === 'ADMIN'
+    ) {
+      mustEscalate = true;
+      escalationReason = 'Đơn của nhân sự giữ vai trò HR/ADMIN bắt buộc chuyển cấp quản lý/con người thẩm định.';
+    }
+
+    if (dto.riskLevel !== RiskLevel.LOW) {
+      mustEscalate = true;
+      escalationReason = `Mức rủi ro ${dto.riskLevel} vượt ngưỡng xử lý tự động của AI, chuyển con người thẩm định.`;
+    }
+
+    if (dto.confidence < minConfidence) {
+      mustEscalate = true;
+      escalationReason = `Độ tin cậy của AI (${(dto.confidence * 100).toFixed(0)}%) chưa đạt ngưỡng tối thiểu (${(minConfidence * 100).toFixed(0)}%).`;
+    }
+
+    const daysRequested = Number(
+      (request.computed as any)?.daysRequested || (request.payload as any)?.daysCount || 1,
+    );
+    if (request.type === RequestType.LEAVE && daysRequested > 3) {
+      mustEscalate = true;
+      escalationReason = `Đơn xin nghỉ ${daysRequested} ngày vượt trần xử lý tự động của AI (tối đa 3 ngày).`;
+    }
+
+    if (request.type === RequestType.OVERTIME) {
+      const otHours = Number((request.payload as any)?.durationHours || 2);
+      if (otHours > 4) {
+        mustEscalate = true;
+        escalationReason = `Giờ làm thêm (${otHours}h) vượt quá trần tự động 4 giờ, ảnh hưởng bảng lương cần nhân sự duyệt.`;
+      }
+    }
+
+    if (level === AutonomyLevel.SUGGEST_ONLY) {
+      mustEscalate = true;
+      escalationReason = 'Hệ thống đang cấu hình cấp độ SUGGEST_ONLY (Chỉ đề xuất), mọi quyết định đều cần người duyệt.';
+    } else if (level === AutonomyLevel.AUTO_APPROVE_LOW_RISK && dto.decision === RequestStatus.REJECTED) {
+      mustEscalate = true;
+      escalationReason = 'Cấp độ AUTO_APPROVE_LOW_RISK không cho phép AI tự động từ chối đơn, đã chuyển cấp quản lý.';
+    }
+
+    if (mustEscalate) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.request.update({
+          where: { id: request.id },
+          data: {
+            status: RequestStatus.ESCALATED,
+            riskLevel: dto.riskLevel,
+            escalationReason,
+          },
+        });
+
+        await tx.requestStatusHistory.create({
+          data: {
+            requestId: request.id,
+            fromStatus: request.status,
+            toStatus: RequestStatus.ESCALATED,
+            actorType: ActorType.AI,
+            actorId: null,
+            reason: escalationReason,
+          },
+        });
+
+        await tx.approval.create({
+          data: {
+            requestId: request.id,
+            deciderType: ActorType.AI,
+            approverId: null,
+            step: 1,
+            status: ApprovalStatus.PENDING,
+            reason: `AI đề xuất: ${dto.decision}. Lý do chuyển thẩm định: ${escalationReason}`,
+            riskLevel: dto.riskLevel,
+            confidence: dto.confidence,
+            policyVersion: '2026.10-draft',
+            agentTraceId: dto.traceId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorType: ActorType.AI,
+            actorId: null,
+            action: 'ESCALATE_REQUEST',
+            entityType: 'Request',
+            entityId: request.id,
+            payload: {
+              before: { status: request.status },
+              after: { status: RequestStatus.ESCALATED, reason: escalationReason },
+              proposedDecision: dto.decision,
+            },
+            policyVersion: '2026.10-draft',
+          },
+        });
+      });
+
+      return {
+        id: request.id,
+        status: RequestStatus.ESCALATED,
+        applied: false,
+        escalationReason,
+      };
+    }
+
+    const finalStatus = dto.decision;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.request.update({
+        where: { id: request.id },
+        data: {
+          status: finalStatus,
+          riskLevel: dto.riskLevel,
+        },
+      });
+
+      if (request.type === RequestType.LEAVE) {
+        const leaveTypeId = (request.payload as any)?.leaveTypeId;
+        if (leaveTypeId) {
+          if (finalStatus === RequestStatus.APPROVED) {
+            await tx.leaveBalance.updateMany({
+              where: {
+                employeeId: request.employeeId,
+                leaveTypeId,
+                year: 2026,
+              },
+              data: {
+                pendingDays: { decrement: daysRequested },
+                usedDays: { increment: daysRequested },
+              },
+            });
+          } else {
+            await tx.leaveBalance.updateMany({
+              where: {
+                employeeId: request.employeeId,
+                leaveTypeId,
+                year: 2026,
+              },
+              data: {
+                pendingDays: { decrement: daysRequested },
+              },
+            });
+          }
+        }
+      }
+
+      await tx.approval.create({
+        data: {
+          requestId: request.id,
+          deciderType: ActorType.AI,
+          approverId: null,
+          step: 1,
+          status: finalStatus === RequestStatus.APPROVED ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED,
+          reason: dto.reason,
+          riskLevel: dto.riskLevel,
+          confidence: dto.confidence,
+          policyVersion: '2026.10-draft',
+          agentTraceId: dto.traceId,
+          decidedAt: new Date(),
+        },
+      });
+
+      await tx.requestStatusHistory.create({
+        data: {
+          requestId: request.id,
+          fromStatus: request.status,
+          toStatus: finalStatus,
+          actorType: ActorType.AI,
+          actorId: null,
+          reason: dto.reason,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorType: ActorType.AI,
+          actorId: null,
+          action: finalStatus === RequestStatus.APPROVED ? 'AI_APPROVE_REQUEST' : 'AI_REJECT_REQUEST',
+          entityType: 'Request',
+          entityId: request.id,
+          payload: {
+            before: { status: request.status },
+            after: { status: finalStatus, reason: dto.reason },
+            confidence: dto.confidence,
+            policyRefs: dto.policyRefs,
+          },
+          policyVersion: '2026.10-draft',
+        },
+      });
+    });
+
+    return {
+      id: request.id,
+      status: finalStatus,
+      applied: true,
+      decidedBy: 'AI',
     };
   }
 

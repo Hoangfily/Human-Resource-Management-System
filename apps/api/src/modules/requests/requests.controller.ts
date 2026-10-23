@@ -13,6 +13,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
 import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
+import { AiDecisionDto } from './dto/ai-decision.dto';
 
 @Controller('requests')
 @UseGuards(JwtAuthGuard)
@@ -97,5 +98,24 @@ export class RequestsController {
     @Body() dto: ReturnDto,
   ) {
     return this.requestsService.returnToDraft(caller, id, dto);
+  }
+
+  // Kiểm tra tính hợp lệ và tuân thủ chính sách trước khi duyệt
+  @Post(':id/check')
+  async checkRequest(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') id: string,
+  ) {
+    return this.requestsService.checkRequest(id, caller);
+  }
+
+  // AI Agent ra quyết định hoặc chuyển thẩm định (escalate)
+  @Post(':id/ai-decision')
+  async aiDecision(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') id: string,
+    @Body() dto: AiDecisionDto,
+  ) {
+    return this.requestsService.aiDecision(id, dto, caller);
   }
 }

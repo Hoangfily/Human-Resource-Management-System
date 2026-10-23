@@ -34,19 +34,41 @@ import {
 import dayjs, { Dayjs } from 'dayjs';
 import { RequestStatus, RequestType } from '@hr-agent/shared';
 import { MOCK_REQUESTS, MOCK_LEAVE_BALANCE } from '../../lib/mock-data';
-import { StatusTag } from '../../components/common';
+import { StatusTag, RiskBadge, RequestTypeTag, EmptyState } from '../../components/common';
 import { RequestItem, LeaveBalanceResponse } from '../../types';
 import { RequestDetailModal } from '../../components/requests';
+import { useAuth } from '../auth/AuthContext';
 import apiClient from '../../lib/api-client';
 
 const { Title, Text } = Typography;
 
 export const RequestsPage: React.FC = () => {
   const { message } = AntdApp.useApp();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
   const [requests, setRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
   const [loading, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  const isAdminOrHr = (() => {
+    const r = String(user?.role || '').toUpperCase();
+    return r === 'ADMIN' || r === 'HR' || r === 'HR_ADMIN';
+  })();
+  const [employees, setEmployees] = useState<Array<{ id: string; fullName: string; department?: { name: string }; departmentName?: string }>>([]);
+
+  // Tải danh sách nhân viên cho Admin / HR
+  useEffect(() => {
+    if (isAdminOrHr) {
+      apiClient
+        .get<any[]>('/employees')
+        .then((res: any) => {
+          if (Array.isArray(res)) {
+            setEmployees(res);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isAdminOrHr]);
 
   // Bộ lọc & tìm kiếm
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -124,7 +146,7 @@ export const RequestsPage: React.FC = () => {
   const isOverLimit = selectedType === RequestType.Leave && daysCount > availableDays;
 
   // Gửi tạo đơn mới lên API
-  const handleCreateSubmit = async (values: { reason: string }) => {
+  const handleCreateSubmit = async (values: { reason: string; employeeId?: string }) => {
     if (selectedType === RequestType.Leave && !dateRange) {
       message.error('Vui lòng chọn khoảng thời gian nghỉ phép!');
       return;
@@ -153,6 +175,7 @@ export const RequestsPage: React.FC = () => {
 
       const res = await apiClient.post<RequestItem>('/requests', {
         type: selectedType,
+        employeeId: values.employeeId && values.employeeId !== user?.id ? values.employeeId : undefined,
         payload,
       });
 
@@ -231,22 +254,39 @@ export const RequestsPage: React.FC = () => {
       title: 'Mã đơn',
       dataIndex: 'id',
       key: 'id',
+      width: 125,
       render: (id: string) => (
-        <Text code style={{ color: '#0f766e', fontWeight: 600 }}>
-          {id.length > 12 ? `${id.slice(0, 8)}...` : id}
-        </Text>
+        <span
+          style={{
+            fontFamily: 'monospace',
+            fontWeight: 600,
+            color: '#0f766e',
+            background: '#f0fdfa',
+            padding: '3px 8px',
+            borderRadius: 6,
+            border: '1px solid #ccfbf1',
+            whiteSpace: 'nowrap',
+            display: 'inline-block',
+            fontSize: 12,
+          }}
+        >
+          #{id.length > 8 ? id.slice(0, 8) : id}
+        </span>
       ),
     },
     {
       title: 'Nhân viên',
       dataIndex: 'employeeName',
       key: 'employeeName',
+      width: 210,
       render: (name: string, record: RequestItem) => (
-        <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>{name || 'Nhân viên'}</div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {record.departmentName || 'Phòng CNTT'}
-          </Text>
+        <div style={{ whiteSpace: 'nowrap' }}>
+          <div style={{ fontWeight: 600, color: '#111827', fontSize: 13.5 }}>
+            {name || 'Nhân viên'}
+          </div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>
+            {record.departmentName || 'Phòng ban'}
+          </div>
         </div>
       ),
     },
@@ -254,34 +294,38 @@ export const RequestsPage: React.FC = () => {
       title: 'Loại yêu cầu',
       dataIndex: 'type',
       key: 'type',
-      render: (type: RequestType) => {
-        const labels: Record<string, string> = {
-          [RequestType.Leave]: 'Nghỉ phép',
-          [RequestType.Overtime]: 'Làm thêm giờ',
-          [RequestType.AttendanceExplanation]: 'Bổ sung chấm công',
-          [RequestType.ShiftChange]: 'Đổi ca làm việc',
-        };
-        return (
-          <Tag color="cyan" style={{ borderRadius: 6 }}>
-            {labels[type] || type}
-          </Tag>
-        );
-      },
+      width: 185,
+      render: (type: RequestType) => (
+        <div style={{ whiteSpace: 'nowrap' }}>
+          <RequestTypeTag type={type} />
+        </div>
+      ),
     },
     {
       title: 'Chi tiết / Lý do',
       key: 'reason',
+      width: 260,
       render: (_: unknown, record: RequestItem) => {
         const payload = record.payload as Record<string, any>;
         const days = (record as any).computed?.daysRequested || payload?.daysCount;
         return (
-          <div>
-            <Text ellipsis style={{ maxWidth: 220, display: 'inline-block' }}>
+          <div style={{ maxWidth: 260 }}>
+            <div
+              style={{
+                color: '#374151',
+                fontSize: 13,
+                lineHeight: 1.4,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={payload?.reason}
+            >
               {payload?.reason || '—'}
-            </Text>
+            </div>
             {days && (
-              <div style={{ fontSize: 11, color: '#059669', fontWeight: 500 }}>
-                Thời gian: {days} ngày
+              <div style={{ fontSize: 11.5, color: '#059669', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
+                Thời gian: {days} ngày làm việc
               </div>
             )}
           </div>
@@ -291,44 +335,63 @@ export const RequestsPage: React.FC = () => {
     {
       title: 'Đánh giá AI',
       key: 'aiRisk',
-      render: (_: unknown, record: RequestItem) => {
-        const risk = record.riskLevel || 'LOW';
-        const color = risk === 'HIGH' ? 'error' : risk === 'MEDIUM' ? 'warning' : 'success';
-        return (
-          <Tag color={color} style={{ borderRadius: 6, fontSize: 11 }}>
-            {risk} ({Math.round((record.aiConfidence ?? 0.95) * 100)}%)
-          </Tag>
-        );
-      },
+      width: 165,
+      render: (_: unknown, record: RequestItem) => (
+        <div style={{ whiteSpace: 'nowrap' }}>
+          <RiskBadge
+            riskLevel={record.riskLevel}
+            confidence={record.aiConfidence}
+            riskScore={record.aiRiskScore}
+          />
+        </div>
+      ),
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      render: (status: RequestStatus) => <StatusTag status={status} />,
+      width: 160,
+      render: (status: RequestStatus) => (
+        <div style={{ whiteSpace: 'nowrap' }}>
+          <StatusTag status={status} />
+        </div>
+      ),
     },
     {
       title: 'Người duyệt',
       dataIndex: 'approverName',
       key: 'approverName',
-      render: (name?: string) => name || <Text type="secondary">Chờ chỉ định</Text>,
+      width: 150,
+      render: (name?: string) => (
+        <div style={{ whiteSpace: 'nowrap', fontSize: 13, color: name ? '#111827' : '#9ca3af' }}>
+          {name || 'Chờ chỉ định'}
+        </div>
+      ),
     },
     {
       title: 'Ngày gửi',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (d: string) => new Date(d).toLocaleDateString('vi-VN'),
+      width: 120,
+      render: (d: string) => (
+        <div style={{ whiteSpace: 'nowrap', fontSize: 12.5, color: '#4b5563' }}>
+          {new Date(d).toLocaleDateString('vi-VN')}
+        </div>
+      ),
     },
     {
       title: 'Thao tác',
       key: 'action',
+      width: 110,
+      fixed: 'right' as const,
       render: (_: unknown, record: RequestItem) => (
-        <Space size={6} onClick={(e) => e.stopPropagation()}>
+        <Space size={6} onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
           <Tooltip title="Xem chi tiết & phân tích của AI">
             <Button
               size="small"
               icon={<EyeOutlined />}
               onClick={() => setSelectedDetailRequest(record)}
+              style={{ borderRadius: 6, fontSize: 12 }}
             >
               Chi tiết
             </Button>
@@ -340,6 +403,7 @@ export const RequestsPage: React.FC = () => {
                 danger
                 icon={<StopOutlined />}
                 onClick={() => handleCancelRequest(record.id)}
+                style={{ borderRadius: 6 }}
               />
             </Tooltip>
           )}
@@ -350,32 +414,77 @@ export const RequestsPage: React.FC = () => {
 
   return (
     <div>
+      <style>{`
+        .ant-table-wrapper .ant-table-thead > tr > th {
+          background: #faf9f5 !important;
+          color: #4b5563 !important;
+          font-weight: 600 !important;
+          font-size: 13px !important;
+          white-space: nowrap !important;
+          border-bottom: 1px solid #eeebe3 !important;
+        }
+        .ant-table-wrapper .ant-table-tbody > tr > td {
+          border-bottom: 1px solid #f3f1ea !important;
+          padding: 14px 16px !important;
+        }
+        .ant-table-wrapper .ant-table-tbody > tr:hover > td {
+          background: #fbfbfa !important;
+        }
+      `}</style>
+
       {/* Tiêu đề & Nút chuyển đổi */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 20,
+          marginBottom: 24,
         }}
       >
         <div>
-          <Title level={3} style={{ margin: 0 }}>
+          <div
+            style={{
+              fontFamily: "'Newsreader', serif",
+              fontSize: '28px',
+              fontWeight: 700,
+              color: '#161615',
+              letterSpacing: '-0.3px',
+              lineHeight: 1.2,
+            }}
+          >
             Quản lý Đơn từ & Yêu cầu
-          </Title>
-          <Text type="secondary">
+          </div>
+          <div style={{ fontSize: '13.5px', color: '#6b7280', marginTop: 4 }}>
             Tạo đơn nghỉ phép, giải trình công, đổi ca và xem xét thẩm định tự động từ AI Agent.
-          </Text>
+          </div>
         </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => { fetchRequests(); fetchLeaveBalance(); }}>
+        <Space size={10}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => { fetchRequests(); fetchLeaveBalance(); }}
+            style={{
+              borderRadius: 8,
+              border: '1px solid #e5e7eb',
+              background: '#ffffff',
+              color: '#374151',
+              fontWeight: 500,
+              height: 38,
+            }}
+          >
             Làm mới
           </Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => setActiveTab(activeTab === 'list' ? 'create' : 'list')}
-            style={{ background: '#059669', borderColor: '#059669' }}
+            style={{
+              background: '#0f4c3a',
+              borderColor: '#0f4c3a',
+              color: '#ffffff',
+              borderRadius: 8,
+              fontWeight: 600,
+              height: 38,
+            }}
           >
             {activeTab === 'list' ? 'Tạo đơn mới' : 'Xem danh sách đơn'}
           </Button>
@@ -383,7 +492,15 @@ export const RequestsPage: React.FC = () => {
       </div>
 
       {activeTab === 'list' ? (
-        <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+        <Card
+          style={{
+            borderRadius: 14,
+            border: '1px solid #eeebe3',
+            background: '#ffffff',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+          }}
+          bodyStyle={{ padding: '20px 24px' }}
+        >
           {/* Thanh công cụ tìm kiếm & bộ lọc */}
           <div
             style={{
@@ -392,7 +509,7 @@ export const RequestsPage: React.FC = () => {
               justifyContent: 'space-between',
               alignItems: 'center',
               gap: 12,
-              marginBottom: 16,
+              marginBottom: 20,
             }}
           >
             <Segmented
@@ -417,29 +534,52 @@ export const RequestsPage: React.FC = () => {
                   value: RequestStatus.Cancelled,
                 },
               ]}
+              style={{ background: '#f5f4f0', padding: 3, borderRadius: 8 }}
             />
 
             <Input
               placeholder="Tìm theo mã đơn, nhân viên hoặc lý do..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              prefix={<SearchOutlined style={{ color: '#9ca3af' }} />}
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
-              style={{ width: 280, borderRadius: 8 }}
+              style={{ width: 320, borderRadius: 8, height: 38, border: '1px solid #e5e7eb' }}
               allowClear
             />
           </div>
 
-          <Table
-            dataSource={filteredRequests}
-            columns={columns}
-            rowKey="id"
-            loading={loading}
-            pagination={{ pageSize: 8 }}
-            onRow={(record) => ({
-              onClick: () => setSelectedDetailRequest(record),
-              style: { cursor: 'pointer' },
-            })}
-          />
+          {filteredRequests.length === 0 && !loading ? (
+            <EmptyState
+              title={
+                searchKeyword || statusFilter !== 'ALL'
+                  ? 'Không tìm thấy yêu cầu phù hợp'
+                  : 'Bạn chưa có yêu cầu nào'
+              }
+              description={
+                searchKeyword || statusFilter !== 'ALL'
+                  ? 'Thử điều chỉnh lại từ khóa tìm kiếm hoặc chọn bộ lọc trạng thái khác.'
+                  : 'Khởi tạo đơn xin nghỉ phép, giải trình chấm công hoặc đề xuất đổi ca làm việc ngay.'
+              }
+              actionText="Tạo đơn mới ngay"
+              onAction={() => setActiveTab('create')}
+            />
+          ) : (
+            <Table
+              dataSource={filteredRequests}
+              columns={columns}
+              rowKey="id"
+              loading={loading}
+              pagination={{
+                pageSize: 8,
+                showSizeChanger: false,
+                style: { marginTop: 16, marginBottom: 0 },
+              }}
+              scroll={{ x: 1380 }}
+              onRow={(record) => ({
+                onClick: () => setSelectedDetailRequest(record),
+                style: { cursor: 'pointer' },
+              })}
+            />
+          )}
         </Card>
       ) : (
         /* Giao diện Tạo đơn 2 cột */
@@ -456,6 +596,37 @@ export const RequestsPage: React.FC = () => {
               style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
             >
               <Form form={form} layout="vertical" onFinish={handleCreateSubmit}>
+                {isAdminOrHr && (
+                  <Row gutter={16}>
+                    <Col xs={24}>
+                      <Form.Item
+                        label="Nhân sự yêu cầu (Tạo đơn cho)"
+                        name="employeeId"
+                        initialValue={user?.id}
+                        tooltip="Quản trị viên và Trưởng phòng HR có thể tạo đơn cho bất kỳ nhân sự nào trong công ty"
+                      >
+                        <Select
+                          showSearch
+                          placeholder="Chọn nhân sự..."
+                          optionFilterProp="label"
+                          options={[
+                            {
+                              value: user?.id,
+                              label: `👤 Chính tôi (${user?.fullName} - ${user?.role === 'ADMIN' ? 'Quản trị viên' : 'Trưởng phòng HR'})`,
+                            },
+                            ...employees
+                              .filter((e) => e.id !== user?.id)
+                              .map((e) => ({
+                                value: e.id,
+                                label: `${e.fullName} (${e.department?.name || e.departmentName || 'Phòng ban'})`,
+                              })),
+                          ]}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
                 <Row gutter={16}>
                   <Col xs={24} sm={12}>
                     <Form.Item label="Loại yêu cầu" required>
@@ -547,11 +718,11 @@ export const RequestsPage: React.FC = () => {
                     size="large"
                     loading={submitting}
                     disabled={isOverLimit}
-                    style={{ background: '#059669', borderColor: '#059669' }}
+                    style={{ background: '#0f4c3a', borderColor: '#0f4c3a', borderRadius: 8, fontWeight: 600 }}
                   >
                     Xác nhận gửi duyệt
                   </Button>
-                  <Button size="large" onClick={() => setActiveTab('list')}>
+                  <Button size="large" onClick={() => setActiveTab('list')} style={{ borderRadius: 8 }}>
                     Hủy bỏ
                   </Button>
                 </Space>

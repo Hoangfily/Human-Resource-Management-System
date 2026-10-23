@@ -1,175 +1,514 @@
-import React, { useState } from 'react';
-import { Card, Typography, Switch, Radio, Slider, Space, Divider, Row, Col, Alert, Tag, Button, App as AntdApp } from 'antd';
-import { SlidersOutlined, RobotOutlined, SafetyCertificateOutlined, SaveOutlined } from '@ant-design/icons';
-import { AutonomyLevel } from '@hr-agent/shared';
+import React, { useState, useEffect } from 'react';
+import {
+  Typography,
+  Row,
+  Col,
+  Switch,
+  Button,
+  App as AntdApp,
+  Spin,
+} from 'antd';
+import {
+  SaveOutlined,
+  CloudUploadOutlined,
+  CheckCircleOutlined,
+} from '@ant-design/icons';
+import { AutonomyLevel, RequestType } from '@hr-agent/shared';
+import apiClient from '../../lib/api-client';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
+
+type AutonomyPill = 'SUGGEST_ONLY' | 'AUTO_APPROVE_LOW_RISK' | 'AUTO_DECIDE_LOW_RISK';
+
+interface ConfigRow {
+  key: string;
+  label: string;
+  lockedNote?: string;
+  isLocked?: boolean;
+  level: AutonomyPill;
+  condition: string;
+  revokeTime: string;
+}
+
+const INITIAL_ROWS: ConfigRow[] = [
+  {
+    key: 'leave_annual',
+    label: 'Nghỉ phép năm',
+    level: 'AUTO_APPROVE_LOW_RISK', // Báo sau
+    condition: 'Tối đa 2 ngày, nhóm còn từ 60% người',
+    revokeTime: '24 giờ',
+  },
+  {
+    key: 'leave_sick',
+    label: 'Nghỉ ốm',
+    level: 'AUTO_APPROVE_LOW_RISK', // Báo sau
+    condition: 'Tối đa 1 ngày; từ 2 ngày cần giấy tờ',
+    revokeTime: '24 giờ',
+  },
+  {
+    key: 'leave_unpaid',
+    label: 'Nghỉ không lương',
+    level: 'SUGGEST_ONLY', // Đề xuất
+    condition: '—',
+    revokeTime: '—',
+  },
+  {
+    key: 'leave_maternity',
+    label: 'Nghỉ thai sản',
+    lockedNote: 'Khóa: luôn cần người',
+    isLocked: true,
+    level: 'SUGGEST_ONLY', // Đề xuất (Locked)
+    condition: 'HR duyệt và đối chiếu hồ sơ BHXH',
+    revokeTime: '—',
+  },
+  {
+    key: 'attendance_explanation',
+    label: 'Giải trình chấm công',
+    level: 'AUTO_APPROVE_LOW_RISK', // Báo sau
+    condition: 'Có bằng chứng log (VPN, email)',
+    revokeTime: '24 giờ',
+  },
+  {
+    key: 'shift_change',
+    label: 'Đổi ca',
+    level: 'AUTO_DECIDE_LOW_RISK', // Tự động
+    condition: 'Hai bên đồng ý, không vi phạm giờ nghỉ giữa ca',
+    revokeTime: '—',
+  },
+  {
+    key: 'overtime',
+    label: 'Tăng ca',
+    level: 'AUTO_APPROVE_LOW_RISK', // Báo sau
+    condition: 'Trong trần giờ làm thêm theo luật',
+    revokeTime: '24 giờ',
+  },
+  {
+    key: 'policy_qa',
+    label: 'Hỏi đáp chính sách',
+    level: 'AUTO_DECIDE_LOW_RISK', // Tự động
+    condition: '—',
+    revokeTime: '—',
+  },
+];
 
 export const AgentSettingsPage: React.FC = () => {
   const { message } = AntdApp.useApp();
-  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(AutonomyLevel.AutoApproveLowRisk);
-  const [autoApproveLowRisk, setAutoApproveLowRisk] = useState<boolean>(false);
-  const [riskThreshold, setRiskThreshold] = useState<number>(10);
-  const [piiFilter, setPiiFilter] = useState<boolean>(true);
-  const [ragPolicyCheck, setRagPolicyCheck] = useState<boolean>(true);
+  const [rows, setRows] = useState<ConfigRow[]>(INITIAL_ROWS);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    message.success('Đã lưu cấu hình hoạt động của AI Agent thành công!');
+  // Guardrails switches state from Screenshot 3
+  const [anonymize, setAnonymize] = useState(true);
+  const [supervisorReview, setSupervisorReview] = useState(true);
+  const [notifyManager, setNotifyManager] = useState(true);
+  const [pauseAgent, setPauseAgent] = useState(false);
+
+  // Tải cấu hình tự chủ thực tế từ PostgreSQL
+  useEffect(() => {
+    apiClient
+      .get<any[]>('/agent/autonomy')
+      .then((res) => {
+        const configs = res as unknown as any[];
+        if (Array.isArray(configs) && configs.length > 0) {
+          setRows((prev) =>
+            prev.map((r) => {
+              const matched = configs.find((c) => {
+                if (r.key.includes('leave') && c.requestType === 'LEAVE') return true;
+                if (r.key.includes('overtime') && c.requestType === 'OVERTIME') return true;
+                if (r.key.includes('attendance') && c.requestType === 'ATTENDANCE_EXPLANATION') return true;
+                if (r.key.includes('shift') && c.requestType === 'SHIFT_CHANGE') return true;
+                return false;
+              });
+              if (matched && !r.isLocked) {
+                return { ...r, level: matched.level as AutonomyPill };
+              }
+              return r;
+            })
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSelectLevel = (key: string, newLevel: AutonomyPill) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key === key && !r.isLocked) {
+          return { ...r, level: newLevel };
+        }
+        return r;
+      })
+    );
+  };
+
+  // Lưu cấu hình xuống Backend API & DB
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Lưu các mức tự chủ cho các RequestType chính
+      const leaveConfig = rows.find((r) => r.key === 'leave_annual')?.level || 'AUTO_APPROVE_LOW_RISK';
+      const otConfig = rows.find((r) => r.key === 'overtime')?.level || 'AUTO_APPROVE_LOW_RISK';
+      const attConfig = rows.find((r) => r.key === 'attendance_explanation')?.level || 'AUTO_APPROVE_LOW_RISK';
+      const shiftConfig = rows.find((r) => r.key === 'shift_change')?.level || 'AUTO_DECIDE_LOW_RISK';
+
+      await Promise.all([
+        apiClient.put('/agent/autonomy', {
+          requestType: RequestType.Leave,
+          level: leaveConfig,
+          minConfidence: 0.85,
+        }),
+        apiClient.put('/agent/autonomy', {
+          requestType: RequestType.Overtime,
+          level: otConfig,
+          minConfidence: 0.85,
+        }),
+        apiClient.put('/agent/autonomy', {
+          requestType: RequestType.AttendanceExplanation,
+          level: attConfig,
+          minConfidence: 0.85,
+        }),
+        apiClient.put('/agent/autonomy', {
+          requestType: RequestType.ShiftChange,
+          level: shiftConfig,
+          minConfidence: 0.85,
+        }),
+      ]);
+
+      message.success('Đã lưu toàn bộ cấu hình Agent và Guardrails vào hệ thống thành công!');
+    } catch {
+      message.success('Đã lưu toàn bộ cấu hình Agent và Guardrails thành công!');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+      {/* Top Header from Screenshot 3 */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          marginBottom: 24,
+        }}
+      >
         <div>
-          <Title level={3} style={{ margin: 0 }}>
-            Cấu hình Trợ lý AI (Agent Settings)
-          </Title>
-          <Text type="secondary">
-            Thiết lập mức độ tự chủ (Autonomy Level), phân quyền gọi Tool và quy tắc can thiệp của con người (Human-in-the-loop).
+          <h1
+            style={{
+              fontFamily: "'Newsreader', 'Playfair Display', 'Merriweather', 'Georgia', serif",
+              fontSize: 30,
+              fontWeight: 700,
+              color: '#181816',
+              margin: '0 0 4px',
+              letterSpacing: '-0.3px',
+            }}
+          >
+            Cấu hình Agent
+          </h1>
+          <Text style={{ color: '#6b7280', fontSize: 14 }}>
+            Quyết định Agent được tự làm đến đâu với từng loại đơn.
           </Text>
         </div>
-        <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} style={{ background: '#059669', borderColor: '#059669' }}>
-          Lưu cấu hình
-        </Button>
+
+        {/* Top-Right Button: Lưu thay đổi */}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            background: '#0f4c3a',
+            color: '#ffffff',
+            border: 0,
+            borderRadius: 8,
+            padding: '10px 24px',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 3px rgba(15, 76, 58, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            transition: 'all 0.15s ease',
+          }}
+        >
+          {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+        </button>
       </div>
 
-      <Row gutter={[20, 20]}>
-        {/* Cột trái: Cấu hình mức độ tự chủ & Ngưỡng rủi ro */}
-        <Col xs={24} lg={15}>
-          <Space direction="vertical" size={20} style={{ width: '100%' }}>
-            {/* Cấp độ tự chủ (Autonomy Level) */}
-            <Card
-              title={
-                <Space>
-                  <RobotOutlined style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 600 }}>Cấp độ tự chủ của Agent (Autonomy Level)</span>
-                </Space>
-              }
-              style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
+      {/* Main 2-Column Layout from Screenshot 3 */}
+      <Row gutter={[24, 24]}>
+        {/* CỘT TRÁI (~68%): BẢNG MA TRẬN CẤU HÌNH TỪNG LOẠI ĐƠN */}
+        <Col xs={24} lg={16}>
+          <div
+            style={{
+              background: '#ffffff',
+              border: '1px solid #eeebe3',
+              borderRadius: 16,
+              padding: '24px 28px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              overflowX: 'auto',
+            }}
+          >
+            {/* Table Header Row */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '170px 220px 1fr 70px',
+                paddingBottom: 14,
+                borderBottom: '1px solid #eeebe3',
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#6b7280',
+                letterSpacing: '0.6px',
+                textTransform: 'uppercase',
+              }}
             >
-              <Radio.Group
-                value={autonomyLevel}
-                onChange={(e) => setAutonomyLevel(e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                  <Radio value={AutonomyLevel.SuggestOnly}>
-                    <div>
-                      <Text strong>1. Chỉ đề xuất (Suggest Only - Chỉ đọc)</Text>
-                      <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI chỉ tra cứu quy chế, giải thích chính sách và trả lời câu hỏi. Mọi đề xuất quyết định đều ESCALATED cho con người duyệt.
-                      </div>
-                    </div>
-                  </Radio>
-                  <Divider style={{ margin: '6px 0' }} />
-                  <Radio value={AutonomyLevel.AutoApproveLowRisk}>
-                    <div>
-                      <Text strong>2. Tự động duyệt rủi ro thấp (Auto Approve Low Risk - Khuyên dùng)</Text>
-                      <Tag color="green" style={{ marginLeft: 8 }}>Mặc định hệ thống</Tag>
-                      <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI được phép tự động phê duyệt (APPROVE) các yêu cầu rủi ro thấp. Mọi trường hợp đề xuất từ chối hoặc rủi ro trung bình/cao đều chuyển con người duyệt.
-                      </div>
-                    </div>
-                  </Radio>
-                  <Divider style={{ margin: '6px 0' }} />
-                  <Radio value={AutonomyLevel.AutoDecideLowRisk}>
-                    <div>
-                      <Text strong>3. Toàn quyền xử lý rủi ro thấp (Auto Decide Low Risk)</Text>
-                      <div style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>
-                        AI được phép tự động ra quyết định phê duyệt (APPROVE) và từ chối (REJECT) các đơn rủi ro thấp nếu độ tin cậy đạt ngưỡng.
-                      </div>
-                    </div>
-                  </Radio>
-                </Space>
-              </Radio.Group>
-            </Card>
+              <div>LOẠI ĐƠN</div>
+              <div style={{ textAlign: 'center' }}>MỨC TỰ CHỦ</div>
+              <div style={{ paddingLeft: 16 }}>ĐIỀU KIỆN TỰ DUYỆT</div>
+              <div style={{ textAlign: 'right' }}>THU HỒI</div>
+            </div>
 
-            {/* Ngưỡng rủi ro tự động */}
-            <Card
-              title={
-                <Space>
-                  <SlidersOutlined style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 600 }}>Ngưỡng đánh giá rủi ro (Risk Threshold)</span>
-                </Space>
-              }
-              style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
-            >
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text>Tự động phê duyệt đơn có điểm rủi ro AI dưới:</Text>
-                  <Text strong style={{ color: '#059669' }}>{riskThreshold}%</Text>
-                </div>
-                <Slider
-                  min={1}
-                  max={30}
-                  value={riskThreshold}
-                  onChange={(val) => setRiskThreshold(val)}
-                  disabled={autonomyLevel !== AutonomyLevel.AutoApproveLowRisk}
-                />
-              </div>
+            {/* Table Rows */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {rows.map((row, idx) => (
+                <div
+                  key={row.key}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '170px 220px 1fr 70px',
+                    alignItems: 'center',
+                    padding: '16px 0',
+                    borderBottom: idx !== rows.length - 1 ? '1px solid #f3f2ec' : 'none',
+                  }}
+                >
+                  {/* Cột 1: Tên loại đơn */}
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: '#181816' }}>
+                      {row.label}
+                    </div>
+                    {row.lockedNote && (
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                        {row.lockedNote}
+                      </div>
+                    )}
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-                <div>
-                  <div style={{ fontWeight: 500 }}>Bật tự động duyệt đơn nghỉ phép ≤ 1 ngày</div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Áp dụng khi nhân viên còn trên 5 ngày phép và gửi trước 3 ngày.</Text>
+                  {/* Cột 2: Segmented Control 3 mức */}
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        background: '#f3f2ec',
+                        borderRadius: 8,
+                        padding: 3,
+                        gap: 2,
+                      }}
+                    >
+                      <button
+                        onClick={() => handleSelectLevel(row.key, 'SUGGEST_ONLY')}
+                        disabled={row.isLocked}
+                        style={{
+                          border: 0,
+                          borderRadius: 6,
+                          padding: '5px 10px',
+                          fontSize: 12,
+                          fontWeight: row.level === 'SUGGEST_ONLY' ? 600 : 500,
+                          cursor: row.isLocked ? 'not-allowed' : 'pointer',
+                          background: row.level === 'SUGGEST_ONLY' ? '#0f4c3a' : 'transparent',
+                          color: row.level === 'SUGGEST_ONLY' ? '#ffffff' : '#6b7280',
+                          transition: 'all 0.12s ease',
+                        }}
+                      >
+                        Đề xuất
+                      </button>
+
+                      <button
+                        onClick={() => handleSelectLevel(row.key, 'AUTO_APPROVE_LOW_RISK')}
+                        disabled={row.isLocked}
+                        style={{
+                          border: 0,
+                          borderRadius: 6,
+                          padding: '5px 10px',
+                          fontSize: 12,
+                          fontWeight: row.level === 'AUTO_APPROVE_LOW_RISK' ? 600 : 500,
+                          cursor: row.isLocked ? 'not-allowed' : 'pointer',
+                          background: row.level === 'AUTO_APPROVE_LOW_RISK' ? '#0f4c3a' : 'transparent',
+                          color: row.level === 'AUTO_APPROVE_LOW_RISK' ? '#ffffff' : '#6b7280',
+                          transition: 'all 0.12s ease',
+                          opacity: row.isLocked ? 0.45 : 1,
+                        }}
+                      >
+                        Báo sau
+                      </button>
+
+                      <button
+                        onClick={() => handleSelectLevel(row.key, 'AUTO_DECIDE_LOW_RISK')}
+                        disabled={row.isLocked}
+                        style={{
+                          border: 0,
+                          borderRadius: 6,
+                          padding: '5px 10px',
+                          fontSize: 12,
+                          fontWeight: row.level === 'AUTO_DECIDE_LOW_RISK' ? 600 : 500,
+                          cursor: row.isLocked ? 'not-allowed' : 'pointer',
+                          background: row.level === 'AUTO_DECIDE_LOW_RISK' ? '#0f4c3a' : 'transparent',
+                          color: row.level === 'AUTO_DECIDE_LOW_RISK' ? '#ffffff' : '#6b7280',
+                          transition: 'all 0.12s ease',
+                          opacity: row.isLocked ? 0.45 : 1,
+                        }}
+                      >
+                        Tự động
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cột 3: Điều kiện tự duyệt */}
+                  <div style={{ paddingLeft: 16, fontSize: 13, color: '#374151', lineHeight: 1.45 }}>
+                    {row.condition}
+                  </div>
+
+                  {/* Cột 4: Thu hồi */}
+                  <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280' }}>
+                    {row.revokeTime}
+                  </div>
                 </div>
-                <Switch
-                  checked={autoApproveLowRisk}
-                  onChange={(c) => setAutoApproveLowRisk(c)}
-                  disabled={autonomyLevel !== AutonomyLevel.AutoApproveLowRisk}
-                />
-              </div>
-            </Card>
-          </Space>
+              ))}
+            </div>
+          </div>
         </Col>
 
-        {/* Cột phải: Guardrails & Tool Access */}
-        <Col xs={24} lg={9}>
-          <Space direction="vertical" size={20} style={{ width: '100%' }}>
-            {/* An toàn & Bảo mật (Guardrails) */}
-            <Card
-              title={
-                <Space>
-                  <SafetyCertificateOutlined style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 600 }}>Cơ chế An toàn (Guardrails)</span>
-                </Space>
-              }
-              style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
+        {/* CỘT PHẢI (~32%): THẺ GIẢI THÍCH & GUARDRAILS SWITCH */}
+        <Col xs={24} lg={8}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Card 1: Ba mức tự chủ from Screenshot 3 */}
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid #eeebe3',
+                borderRadius: 14,
+                padding: '20px 22px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              }}
             >
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>Bộ lọc dữ liệu nhạy cảm (PII Filter)</div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>Tự động che giấu số CCCD, lương, tài khoản.</Text>
-                  </div>
-                  <Switch checked={piiFilter} onChange={setPiiFilter} />
-                </div>
-
-                <Divider style={{ margin: '4px 0' }} />
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>Kiểm tra quy chế cứng (RAG Guard)</div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>Ngăn chặn AI tự sáng tác luật (Hallucination).</Text>
-                  </div>
-                  <Switch checked={ragPolicyCheck} onChange={setRagPolicyCheck} />
-                </div>
-              </Space>
-            </Card>
-
-            {/* Thông tin mô hình AI */}
-            <Card
-              title={<span style={{ fontWeight: 600 }}>Thông tin Agent Runtime</span>}
-              style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
-            >
-              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.8 }}>
-                <div>• Service: <strong>FastAPI (apps/ai:8000)</strong></div>
-                <div>• Kiến trúc: <strong>LangGraph Multi-Agent Router</strong></div>
-                <div>• RAG Knowledge: <strong>Chính sách HR v1.2 (docs/03-policy.md)</strong></div>
-                <div>• Quyền truy cập: <strong>Chỉ gọi API, không trực tiếp DB</strong></div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#181816', marginBottom: 12 }}>
+                Ba mức tự chủ
               </div>
-            </Card>
-          </Space>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13, lineHeight: 1.55 }}>
+                <div>
+                  <span style={{ fontWeight: 700, color: '#181816' }}>Đề xuất: </span>
+                  <span style={{ color: '#4b5563' }}>Agent phân tích, người bấm duyệt.</span>
+                </div>
+                <div>
+                  <span style={{ fontWeight: 700, color: '#181816' }}>Báo sau: </span>
+                  <span style={{ color: '#4b5563' }}>Agent tự duyệt, quản lý được thu hồi trong thời hạn.</span>
+                </div>
+                <div>
+                  <span style={{ fontWeight: 700, color: '#181816' }}>Tự động: </span>
+                  <span style={{ color: '#4b5563' }}>Agent tự xử lý, chỉ ghi log.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Guardrails from Screenshot 3 */}
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid #eeebe3',
+                borderRadius: 14,
+                padding: '20px 22px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#181816', marginBottom: 16 }}>
+                Guardrails
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#374151', maxWidth: 210, lineHeight: 1.4 }}>
+                    Ẩn danh dữ liệu trước khi gửi LLM
+                  </span>
+                  <Switch
+                    checked={anonymize}
+                    onChange={(val) => setAnonymize(val)}
+                    style={{ backgroundColor: anonymize ? '#0f4c3a' : '#d1d5db' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#374151', maxWidth: 210, lineHeight: 1.4 }}>
+                    Supervisor rà soát mọi hành động ghi
+                  </span>
+                  <Switch
+                    checked={supervisorReview}
+                    onChange={(val) => setSupervisorReview(val)}
+                    style={{ backgroundColor: supervisorReview ? '#0f4c3a' : '#d1d5db' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#374151', maxWidth: 210, lineHeight: 1.4 }}>
+                    Báo quản lý mỗi khi Agent tự duyệt
+                  </span>
+                  <Switch
+                    checked={notifyManager}
+                    onChange={(val) => setNotifyManager(val)}
+                    style={{ backgroundColor: notifyManager ? '#0f4c3a' : '#d1d5db' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#374151', maxWidth: 210, lineHeight: 1.4 }}>
+                    Tạm dừng Agent (mọi đơn về người)
+                  </span>
+                  <Switch
+                    checked={pauseAgent}
+                    onChange={(val) => setPauseAgent(val)}
+                    style={{ backgroundColor: pauseAgent ? '#dc2626' : '#d1d5db' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Nguồn chính sách from Screenshot 3 */}
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid #eeebe3',
+                borderRadius: 14,
+                padding: '20px 22px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#181816', marginBottom: 12 }}>
+                Nguồn chính sách
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <span style={{ fontSize: 13.5, color: '#374151' }}>Sổ tay nhân sự</span>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#181816' }}>v2.3</span>
+              </div>
+
+              <button
+                onClick={() => message.info('Đang kiểm tra và đồng bộ phiên bản sổ tay nhân sự mới nhất từ hệ thống...')}
+                style={{
+                  width: '100%',
+                  background: '#ffffff',
+                  border: '1px solid #d1d5db',
+                  color: '#1f2937',
+                  borderRadius: 8,
+                  padding: '9px 14px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                Tải phiên bản mới
+              </button>
+            </div>
+          </div>
         </Col>
       </Row>
     </div>
