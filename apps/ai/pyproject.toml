@@ -9,6 +9,7 @@ dependencies = [
   "httpx>=0.28,<1.0",
   "pydantic>=2.9,<3.0",
   "python-dotenv>=1.0,<2.0",
+  "tzdata>=2024.1",  # zoneinfo data on Windows
   "google-genai>=1.0,<2.0",
 ]
 

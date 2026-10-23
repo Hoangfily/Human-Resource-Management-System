@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .common import ApiModel, FinalAction, RequestStatus, RiskLevel
 
@@ -65,10 +65,26 @@ class EvaluateRequest(ApiModel):
     request_id: str
 
 
+class AssessmentSummary(ApiModel):
+    """LLMAssessment with camelCase keys (LLMAssessment itself stays snake_case for the LLM schema)."""
+
+    decision: str
+    risk_level: RiskLevel
+    confidence: float
+    policy_refs: list[str]
+    rationale: str
+    employee_message: str
+
+
 class EvaluateResponse(ApiModel):
     request_id: str
     action: FinalAction
     status: RequestStatus | None = None  # Status reported by the API after our write
     applied: bool | None = None
     reasons: list[str] = []
-    assessment: LLMAssessment | None = None
+    assessment: AssessmentSummary | None = None
+
+    @field_validator("assessment", mode="before")
+    @classmethod
+    def _from_llm(cls, value: object) -> object:
+        return value.model_dump() if isinstance(value, LLMAssessment) else value
