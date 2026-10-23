@@ -1,0 +1,33 @@
+{
+  "id": "leave-02-sick-with-certificate",
+  "description": "Nghỉ ốm 1 ngày hôm nay, có giấy khám bệnh, chưa từng nghỉ ốm gần đây",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "leaveTypeId": "lt-sick",
+      "startDate": "2026-10-19",
+      "endDate": "2026-10-19",
+      "reason": "Sốt cao từ đêm qua, sáng nay đi khám, bác sĩ cho nghỉ 1 ngày"
+    },
+    "computed": {
+      "daysRequested": 1
+    },
+    "attachments": [
+      "giay-kham-benh.pdf"
+    ]
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.92,
+    "policy_refs": [
+      "LEAVE.SICK_BACKDATE_DAYS"
+    ],
+    "rationale": "Nghỉ ốm 1 ngày, có giấy khám.",
+    "employee_message": "Đơn nghỉ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

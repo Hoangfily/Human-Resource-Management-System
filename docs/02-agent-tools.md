@@ -5,7 +5,7 @@ All tools are implemented in `apps/ai` and call authenticated `apps/api` endpoin
 The agent runs in two modes:
 
 - **Chat mode** (`/agent/chat`): helps a user explain policy, fill and submit requests. Acts on behalf of that user.
-- **Decision mode** (triggered by the API when a request becomes PENDING): evaluates one request and calls `decide_request` or `escalate_to_human`. It does not see the chat history, and treats `reason`/`explanation`/attachments as data, never as instructions.
+- **Decision mode** (the API calls `POST /evaluate` on the AI service when a request becomes PENDING, see `01-api-contract.md`): evaluates one request and calls `decide_request` or `escalate_to_human`. Every write carries the agent `trace`. It does not see the chat history, and treats `reason`/`explanation`/attachments as data, never as instructions.
 
 | Tool | Mode | Input | Output | API endpoint | Access |
 | --- | --- | --- | --- | --- | --- |
@@ -18,8 +18,8 @@ The agent runs in two modes:
 | `check_request` | Chat | `{ request_id }` | Missing fields and hard-rule findings | `POST /requests/:id/check` | Read / validate |
 | `create_request` | Chat | `{ type, payload, idempotency_key }` | Created draft summary | `POST /requests` | Write |
 | `submit_request` | Chat | `{ request_id, user_confirmed: true }` | New status | `POST /requests/:id/submit` | Write |
-| `decide_request` | Decision | `{ request_id, decision, reason, risk_level, confidence, policy_refs, idempotency_key }` | `{ status, applied }` | `POST /requests/:id/ai-decision` | Write |
-| `escalate_to_human` | Both | `{ request_id, reason, risk_level }` | Escalation status | `POST /requests/:id/escalate` | Write |
+| `decide_request` | Decision | `{ request_id, decision, reason, risk_level, confidence, policy_refs, idempotency_key, trace }` | `{ status, applied }` | `POST /requests/:id/ai-decision` | Write |
+| `escalate_to_human` | Both | `{ request_id, reason, risk_level, idempotency_key, trace? }` | Escalation status | `POST /requests/:id/escalate` | Write |
 
 Write tools must include an idempotency key and return a stable error code. The API re-checks hard rules, `AutonomyConfig`, risk level and confidence on every `decide_request`; if any condition fails, the request is escalated instead (`applied: false`). The agent cannot decide ESCALATED requests or override human decisions.
 

@@ -10,6 +10,7 @@ Business rules and status transitions are defined in `05-business-spec.md`; poli
 | --- | --- | --- | --- |
 | GET | `/health` | Any | Service health (currently at root `/health` in scaffold) |
 | GET | `/employees/me` | User | Current employee profile |
+| GET | `/employees/:id` | Manager, HR, AI | Employee profile (AI receives no contact details) |
 | GET | `/leave/balance` | User, AI | Leave balance (`?employeeId=` for manager/HR/AI) |
 | GET | `/schedules` | User, AI | Schedule entries visible to caller (`?employeeId=&departmentId=&from=&to=`) |
 | GET | `/requests` | User, AI | List requests visible to caller (`?status=&type=&employeeId=&cursor=`) |
@@ -131,10 +132,24 @@ Chỉ AI service gọi (service token). API kiểm tra lại luật cứng, `Aut
   "riskLevel": "LOW",
   "confidence": 0.93,
   "policyRefs": ["LEAVE.NOTICE_DAYS", "LEAVE.ANNUAL_DAYS_PER_YEAR"],
-  "traceId": "agent-trace-uuid",
-  "idempotencyKey": "unique-string"
+  "idempotencyKey": "ai-eval:<requestId>:<updatedAt>",
+  "trace": {
+    "mode": "DECISION",
+    "model": "gemini-3.5-flash",
+    "promptVersion": "leave_decision@1",
+    "policyVersion": "2026.10-draft",
+    "toolCalls": [{ "method": "GET", "path": "/requests/<id>", "status": 200, "ms": 12 }, { "tool": "llm.assess", "model": "gemini-3.5-flash", "ms": 4100 }],
+    "policyRefs": ["LEAVE.NOTICE_DAYS"],
+    "proposedDecision": "APPROVED",
+    "riskLevel": "LOW",
+    "confidence": 0.93,
+    "rationale": "Nhận định nội bộ cho người duyệt",
+    "guardReasons": [],
+    "latencyMs": 4100
+  }
 }
 ```
+`reason` là câu gửi cho nhân viên. API lưu `trace` vào `AgentTrace` (AI service không có quyền ghi DB). `idempotencyKey` giữ nguyên với cùng một phiên bản đơn, nên gọi lại không tạo quyết định thứ hai.
 **Response (200 OK):**
 ```json
 {
@@ -162,9 +177,12 @@ Manager/HR duyệt hoặc từ chối đơn PENDING/ESCALATED, hoặc ghi đè q
 ```json
 {
   "reason": "Lý do nghỉ không khớp với giấy tờ đính kèm",
-  "riskLevel": "HIGH"
+  "riskLevel": "HIGH",
+  "idempotencyKey": "ai-eval:<requestId>:<updatedAt>",
+  "trace": { "...": "giống /ai-decision, có thể bỏ trống khi người dùng tự escalate" }
 }
 ```
+Khi AI escalate, `reason` gồm các lý do guardrail cộng nhận định của AI, để người duyệt đọc. `idempotencyKey` và `trace` chỉ AI gửi.
 
 ### 8. GET `/requests/:id`
 **Response (200 OK):**
@@ -187,6 +205,32 @@ Manager/HR duyệt hoặc từ chối đơn PENDING/ESCALATED, hoặc ghi đè q
   "updatedAt": "2026-10-06T10:01:00Z"
 }
 ```
+
+## AI service endpoints (apps/ai, called by the API)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Service health |
+| POST | `/evaluate` | Evaluate one PENDING request: the AI then calls `/ai-decision` or `/escalate` itself |
+
+`POST /evaluate` requires header `X-Service-Token: <AI_INBOUND_TOKEN>` (401 if wrong, 503 if the AI service has no token configured). Send `X-Correlation-Id` to reuse the same id in the AI's calls back to the API.
+
+**Request Body:** `{ "requestId": "uuid" }`
+
+**Response (200 OK):**
+```json
+{
+  "requestId": "uuid",
+  "action": "APPROVE",
+  "status": "APPROVED",
+  "applied": true,
+  "reasons": [],
+  "assessment": { "decision": "APPROVED", "riskLevel": "LOW", "confidence": 0.95, "policyRefs": ["LEAVE.NOTICE_DAYS"], "rationale": "...", "employeeMessage": "..." }
+}
+```
+`action` ∈ `APPROVE` | `REJECT` | `ESCALATE` | `SKIP` (request was not PENDING; nothing written). Any AI failure (LLM timeout, missing data) ends in `ESCALATE`, never a guess. 404 when the request does not exist, 502 when the API cannot be reached.
+
+The call can take up to ~40 s (LLM + fallback model). Call it **asynchronously** after the status change; the result is already written through `/ai-decision` or `/escalate`.
 
 ## Error codes
 

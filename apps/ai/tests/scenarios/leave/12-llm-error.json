@@ -1,0 +1,12 @@
+{
+  "id": "leave-12-llm-error",
+  "description": "LLM lỗi (timeout): fail safe, escalate MEDIUM",
+  "today": "2026-10-19",
+  "live": false,
+  "llm": {
+    "error": "timed out after 20s"
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}
