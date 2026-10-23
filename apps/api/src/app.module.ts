@@ -4,6 +4,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { RequestsModule } from './modules/requests/requests.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
+import { PolicyModule } from './modules/policy/policy.module';
 
 @Controller()
 class HealthController {
@@ -14,7 +16,15 @@ class HealthController {
 }
 
 @Module({ 
-  imports: [PrismaModule, AuthModule, UsersModule, LeaveModule, RequestsModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    UsersModule,
+    LeaveModule,
+    RequestsModule,
+    AttendanceModule,
+    PolicyModule,
+  ],
   controllers: [HealthController],
 })
 export class AppModule {}
