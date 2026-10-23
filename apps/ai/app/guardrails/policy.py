@@ -33,7 +33,9 @@ def apply_autonomy(
     injection_flags: Collection[str] = (),
     days_requested: float | None = None,
     max_auto_days: float | None = None,
+    limit_reasons: Collection[str] = (),
 ) -> GuardResult:
+    """`limit_reasons`: type-specific limits the agent found broken (e.g. OT hours); each escalates."""
     reasons: list[str] = []
 
     if assessment.decision == "ESCALATED":
@@ -60,6 +62,8 @@ def apply_autonomy(
 
     if days_requested is not None and max_auto_days is not None and days_requested > max_auto_days:
         reasons.append(f"Đơn {days_requested:g} ngày vượt giới hạn AI tự quyết ({max_auto_days:g} ngày)")
+
+    reasons.extend(limit_reasons)
 
     if reasons:
         return GuardResult(FinalAction.ESCALATE, reasons)

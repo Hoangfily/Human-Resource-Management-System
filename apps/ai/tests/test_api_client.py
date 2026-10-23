@@ -70,6 +70,17 @@ async def test_missing_autonomy_config_is_most_restrictive(api: ApiClient, store
     assert config.level is AutonomyLevel.SUGGEST_ONLY
 
 
+async def test_request_detail_drops_employee_name_from_api(api: ApiClient) -> None:
+    req = await get_request(api, "req-demo-1")  # Mock adds employeeName like apps/api
+    assert "employee_name" not in req.model_dump() and "Nguyen Van A" not in req.model_dump_json()
+
+
+async def test_empty_policy_list(api: ApiClient, store: MockStore) -> None:
+    store.policies["items"] = []
+    policies = await get_policies(api)
+    assert (policies.version, policies.keys()) == ("unknown", set())
+
+
 async def test_list_requests_filters(api: ApiClient) -> None:
     assert len(await list_requests(api, "emp-001", type=RequestType.LEAVE)) == 1
     assert await list_requests(api, "emp-001", type=RequestType.OVERTIME) == []

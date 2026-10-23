@@ -1,0 +1,30 @@
+{
+  "id": "ot-08-day-total",
+  "description": "Ca 9 giờ + OT 4 giờ = 13 giờ, vượt 12 giờ/ngày",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-21",
+      "startTime": "18:00",
+      "endTime": "22:00",
+      "reason": "Hỗ trợ triển khai bản phát hành 2.3 cho khách hàng, cần chạy migration ngoài giờ"
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH",
+      "OT.MAX_TOTAL_HOURS_PER_DAY"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Tổng giờ làm trong ngày 13 giờ"
+  }
+}

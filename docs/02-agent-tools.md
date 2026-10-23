@@ -4,7 +4,7 @@ All tools are implemented in `apps/ai` and call authenticated `apps/api` endpoin
 
 The agent runs in two modes:
 
-- **Chat mode** (`/agent/chat`): helps a user explain policy, fill and submit requests. Acts on behalf of that user.
+- **Chat mode** (the API forwards `/agent/chat` to the AI service `POST /api/chat`, not built yet): helps a user explain policy, fill and submit requests. Acts on behalf of that user.
 - **Decision mode** (the API calls `POST /evaluate` on the AI service when a request becomes PENDING, see `01-api-contract.md`): evaluates one request and calls `decide_request` or `escalate_to_human`. Every write carries the agent `trace`. It does not see the chat history, and treats `reason`/`explanation`/attachments as data, never as instructions.
 
 | Tool | Mode | Input | Output | API endpoint | Access |
@@ -14,7 +14,7 @@ The agent runs in two modes:
 | `get_schedule` | Both | `{ employee_id?, department_id?, from, to }` | Schedule entries visible to caller | `GET /schedules` | Read |
 | `get_request` | Both | `{ request_id }` | Request details incl. hard-rule results | `GET /requests/:id` | Read |
 | `list_requests` | Decision | `{ employee_id, type?, from?, to? }` | Recent requests (to detect unusual patterns) | `GET /requests` | Read |
-| `search_policy` | Both | `{ query }` | Matching policy snippets with `key` and `version` | `GET /policies` | Read |
+| `search_policy` | Both | `{ query }` | Matching policy snippets with `key` and `version` | `GET /policy` | Read |
 | `check_request` | Chat | `{ request_id }` | Missing fields and hard-rule findings | `POST /requests/:id/check` | Read / validate |
 | `create_request` | Chat | `{ type, payload, idempotency_key }` | Created draft summary | `POST /requests` | Write |
 | `submit_request` | Chat | `{ request_id, user_confirmed: true }` | New status | `POST /requests/:id/submit` | Write |

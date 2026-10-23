@@ -10,6 +10,7 @@ Scenario file (tests/scenarios/<type>/*.json):
   "request": {...},            # merged into the demo request (payload is merged too)
   "employee": {...},           # merged into the default employee
   "history": [{...}],          # other requests of the employee (short form, see _history_request)
+  "schedules": [{...}],        # rows of GET /shifts/schedules: {"date", "shiftStart", "shiftEnd"}
   "autonomy": {"LEAVE": "AUTO_APPROVE_LOW_RISK"},
   "llm": {LLMAssessment} | {"error": "..."},
   "expected": {"action": "APPROVE" | "REJECT" | "ESCALATE" | "SKIP"}
@@ -55,12 +56,19 @@ class Scenario:
 
         request = deepcopy(store.requests[REQUEST_ID])
         overrides = deepcopy(self.raw.get("request", {}))
-        request["payload"] |= overrides.pop("payload", {})
+        if overrides.get("type", request["type"]) != request["type"]:
+            # Another request type: its payload replaces the demo LEAVE payload entirely.
+            request["payload"] = overrides.pop("payload")
+            request["computed"] = overrides.pop("computed", {})
+        else:
+            request["payload"] |= overrides.pop("payload", {})
         request |= overrides
         store.add_request(request)
 
         for i, item in enumerate(self.raw.get("history", [])):
             store.add_request(_history_request(f"hist-{i}", item))
+        for i, row in enumerate(self.raw.get("schedules", [])):
+            store.schedules.append({"id": f"sch-{i}", "employeeId": "emp-001", **row})
         for request_type, level in self.raw.get("autonomy", {}).items():
             store.autonomy[request_type]["level"] = level
         return store
@@ -73,22 +81,32 @@ class Scenario:
 
 
 def _history_request(request_id: str, item: dict[str, Any]) -> dict[str, Any]:
-    """Short form: {"leaveTypeId", "startDate", "endDate", "days", "status", "createdAt"}."""
+    """LEAVE short form: {"leaveTypeId", "startDate", "endDate", "days", "status", "createdAt"}.
+    Any other type: {"type", "payload", "status", "createdAt"}."""
+    if "payload" in item:
+        payload = {"reason": "(lý do cũ)", **item["payload"]}
+        day = payload.get("date") or payload.get("startDate")
+        computed: dict[str, Any] = {}
+    else:
+        day = item["startDate"]
+        payload = {
+            "leaveTypeId": item["leaveTypeId"],
+            "startDate": item["startDate"],
+            "endDate": item.get("endDate", item["startDate"]),
+            "reason": item.get("reason", "(lý do cũ)"),
+        }
+        computed = {"daysRequested": item.get("days", 1)}
+    created = item.get("createdAt", f"{day}T01:00:00Z")
     return {
         "id": request_id,
         "type": item.get("type", "LEAVE"),
         "status": item.get("status", "APPROVED"),
         "employeeId": "emp-001",
-        "payload": {
-            "leaveTypeId": item["leaveTypeId"],
-            "startDate": item["startDate"],
-            "endDate": item.get("endDate", item["startDate"]),
-            "reason": item.get("reason", "(lý do cũ)"),
-        },
-        "computed": {"daysRequested": item.get("days", 1)},
+        "payload": payload,
+        "computed": computed,
         "attachments": [],
-        "createdAt": item.get("createdAt", f"{item['startDate']}T01:00:00Z"),
-        "updatedAt": item.get("createdAt", f"{item['startDate']}T01:00:00Z"),
+        "createdAt": created,
+        "updatedAt": created,
     }
 
 

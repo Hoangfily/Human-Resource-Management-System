@@ -25,6 +25,10 @@ class Settings:
     gemini_api_key: str
     ai_min_confidence: float
     ai_max_auto_leave_days: float
+    ai_max_auto_payroll_hours: float  # AI.MAX_AUTO_PAYROLL_IMPACT_HOURS
+    ot_max_total_hours_per_day: float  # OT.MAX_TOTAL_HOURS_PER_DAY (shift + OT)
+    ot_max_hours_per_month: float  # OT.MAX_HOURS_PER_MONTH
+    ot_max_hours_per_year: float  # OT.MAX_HOURS_PER_YEAR
     company_timezone: str
 
 
@@ -43,5 +47,9 @@ def get_settings() -> Settings:
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         ai_min_confidence=_float("AI_MIN_CONFIDENCE", 0.85),
         ai_max_auto_leave_days=_float("AI_MAX_AUTO_LEAVE_DAYS", 3),
+        ai_max_auto_payroll_hours=_float("AI_MAX_AUTO_PAYROLL_HOURS", 4),
+        ot_max_total_hours_per_day=_float("OT_MAX_TOTAL_HOURS_PER_DAY", 12),
+        ot_max_hours_per_month=_float("OT_MAX_HOURS_PER_MONTH", 40),
+        ot_max_hours_per_year=_float("OT_MAX_HOURS_PER_YEAR", 200),
         company_timezone=os.getenv("COMPANY_TIMEZONE", "Asia/Ho_Chi_Minh"),
     )

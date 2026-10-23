@@ -101,6 +101,29 @@ async def test_history_shows_metadata_but_never_past_reasons(api: ApiClient, sto
     assert "LÝ DO CŨ BÍ MẬT" not in built.user
 
 
+# ---- payload shapes from the real web/API ----
+async def test_leave_type_code_only_when_api_did_not_resolve_id(api: ApiClient, store: MockStore) -> None:
+    payload = store.requests["req-demo-1"]["payload"]
+    del payload["leaveTypeId"]  # Web sent only the code
+    _, built = await prompt_for(api)
+    assert '"leaveType": "ANNUAL"' in built.user and '"availableDays": 10' in built.user
+
+
+async def test_iso_datetime_dates_are_read_in_company_timezone(api: ApiClient, store: MockStore) -> None:
+    store.requests["req-demo-1"]["payload"] |= {
+        "startDate": "2026-10-28T17:00:00.000Z",  # Midnight 29/10 in Vietnam
+        "endDate": "2026-10-29T17:00:00.000Z",
+    }
+    _, built = await prompt_for(api)
+    assert "2026-10-29 (Thứ 5)" in built.user and "2026-10-30 (Thứ 6)" in built.user
+
+
+async def test_client_days_count_is_ignored(api: ApiClient, store: MockStore) -> None:
+    store.requests["req-demo-1"]["payload"]["daysCount"] = 1  # Client claims less than the API computed
+    _, built = await prompt_for(api)
+    assert built.days_requested == 2
+
+
 # ---- days ----
 async def test_days_come_from_api_computed_value(api: ApiClient, store: MockStore) -> None:
     store.requests["req-demo-1"]["computed"] = {"daysRequested": 1.5}

@@ -1,9 +1,9 @@
-"""Mock of the apps/api endpoints the AI uses (docs/01-api-contract.md).
+"""Mock of the apps/api endpoints the AI uses, with the same paths and response shapes
+as the real API (origin/api) so tests reflect what the AI will meet.
 
 Run by hand: `uvicorn app.mock_api.server:app --port 3001`
 """
 
-from datetime import date
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -32,6 +32,9 @@ def create_mock_api(store: MockStore) -> FastAPI:
         if store.fail_next:
             status = store.fail_next.pop(0)
             return JSONResponse(status_code=status, content={"code": "INJECTED", "message": "fail_next"})
+        if any(request.url.path.endswith(suffix) for suffix in store.missing_paths):
+            # What NestJS answers for a route that does not exist yet.
+            return JSONResponse(status_code=404, content={"message": f"Cannot {request.method} {request.url.path}"})
         return await call_next(request)
 
     def auth(authorization: str = Header(default="")) -> None:
@@ -47,22 +50,27 @@ def create_mock_api(store: MockStore) -> FastAPI:
             raise MockApiError(404, "NOT_FOUND", f"Request {request_id} not found")
         return store.requests[request_id]
 
+    def formatted(request: dict[str, Any]) -> dict[str, Any]:
+        # Like apps/api formatRequest: adds the employee's name (PII the AI must never pass on).
+        name = store.employees.get(request["employeeId"], {}).get("fullName", "Nhân viên")
+        return {**request, "employeeName": name}
+
     @api.get("/requests/{request_id}")
     def get_request(request_id: str) -> dict[str, Any]:
-        return find_request(request_id)
+        return formatted(find_request(request_id))
 
     @api.get("/requests")
     def list_requests(
-        employeeId: str, type: str | None = None, since: date | None = Query(None, alias="from")
-    ) -> dict[str, Any]:
+        employeeId: str, type: str | None = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        # Like apps/api: a plain array, newest first, no date filter.
         items = [
-            r
+            formatted(r)
             for r in store.requests.values()
-            if r["employeeId"] == employeeId
-            and (type is None or r["type"] == type)
-            and (since is None or r["createdAt"][:10] >= since.isoformat())
+            if r["employeeId"] == employeeId and (type is None or r["type"] == type)
         ]
-        return {"items": items, "nextCursor": None}
+        items.sort(key=lambda r: r["createdAt"], reverse=True)
+        return items[offset : offset + limit]
 
     @api.get("/employees/{employee_id}")
     def get_employee(employee_id: str) -> dict[str, Any]:
@@ -74,14 +82,30 @@ def create_mock_api(store: MockStore) -> FastAPI:
     def get_balance(employeeId: str) -> dict[str, Any]:
         return {"balances": store.balances.get(employeeId, [])}
 
-    @api.get("/policies")
-    def get_policies() -> dict[str, Any]:
-        return store.policies
+    @api.get("/shifts/schedules")
+    def get_schedules(
+        employeeId: str, start: str | None = Query(None, alias="from"), end: str | None = Query(None, alias="to")
+    ) -> list[dict[str, Any]]:
+        # Like apps/api: one employee, optional inclusive date range, oldest first, employee embedded.
+        employee = store.employees.get(employeeId, {})
+        rows = [
+            {**s, "employee": {"id": employeeId, "fullName": employee.get("fullName"), "email": employee.get("email")}}
+            for s in store.schedules
+            if s["employeeId"] == employeeId
+            and (start is None or s["date"][:10] >= start)
+            and (end is None or s["date"][:10] <= end)
+        ]
+        return sorted(rows, key=lambda s: s["date"])
 
-    @api.get("/autonomy-config")
-    def get_autonomy() -> dict[str, Any]:
-        return {"items": list(store.autonomy.values())}
+    @api.get("/policy")
+    def get_policies() -> list[dict[str, Any]]:
+        return store.policies["items"]
 
+    @api.get("/agent/autonomy-config")
+    def get_autonomy() -> list[dict[str, Any]]:
+        return list(store.autonomy.values())
+
+    # Not in apps/api yet (docs/01-api-contract.md: "to build for AI").
     @api.post("/requests/{request_id}/ai-decision")
     async def ai_decision(request_id: str, request: Request) -> dict[str, Any]:
         body = await request.json()

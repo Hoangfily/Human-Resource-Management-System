@@ -37,6 +37,10 @@ _POLICIES = [
     ("LEAVE.UNPAID_MAX_AUTO_DAYS", "Nghỉ không lương", "Nghỉ không lương trên 3 ngày phải được người duyệt."),
     ("AI.MIN_CONFIDENCE", "Ngưỡng tin cậy AI", "AI chỉ tự quyết khi confidence ≥ 0.85."),
     ("AI.MAX_AUTO_LEAVE_DAYS", "Giới hạn AI tự duyệt", "AI chỉ tự quyết đơn nghỉ tối đa 3 ngày."),
+    ("AI.MAX_AUTO_PAYROLL_IMPACT_HOURS", "Giới hạn giờ AI tự duyệt", "AI chỉ tự quyết đơn làm thêm hoặc giải trình ảnh hưởng tối đa 4 giờ công."),
+    ("OT.MAX_TOTAL_HOURS_PER_DAY", "Giờ làm tối đa mỗi ngày", "Tổng giờ làm trong ngày (ca + làm thêm) không quá 12 giờ."),
+    ("OT.MAX_HOURS_PER_MONTH", "Làm thêm tối đa mỗi tháng", "Không quá 40 giờ làm thêm mỗi tháng."),
+    ("OT.MAX_HOURS_PER_YEAR", "Làm thêm tối đa mỗi năm", "Không quá 200 giờ làm thêm mỗi năm."),
 ]
 
 
@@ -67,6 +71,7 @@ def default_employee(employee_id: str = "emp-001") -> dict[str, Any]:
         "role": "EMPLOYEE",
         "status": "ACTIVE",
         "joinDate": "2023-03-01",
+        "shiftTime": "08:30 - 17:30",
         "departmentId": "dep-eng",
         "managerId": "emp-100",
     }
@@ -98,6 +103,8 @@ class MockStore:
     autonomy: dict[str, dict[str, Any]] = field(default_factory=default_autonomy)
     writes: list[dict[str, Any]] = field(default_factory=list)  # Every POST received, for assertions
     fail_next: list[int] = field(default_factory=list)  # Status codes to return for the next calls
+    missing_paths: set[str] = field(default_factory=set)  # Path suffixes answered with 404, e.g. "/ai-decision"
+    schedules: list[dict[str, Any]] = field(default_factory=list)  # Rows of GET /shifts/schedules
 
     def add_employee(self, employee: dict[str, Any], balances: list[dict[str, Any]] | None = None) -> None:
         self.employees[employee["id"]] = deepcopy(employee)
@@ -119,10 +126,14 @@ def demo_store() -> MockStore:
             "employeeId": "emp-001",
             "createdById": "emp-001",
             "createdByType": "HUMAN",
+            # Shape apps/api stores: web sends leaveType + daysCount, API adds leaveTypeId/leaveTypeName.
             "payload": {
+                "leaveType": "ANNUAL",
                 "leaveTypeId": "lt-annual",
+                "leaveTypeName": "Nghỉ phép năm",
                 "startDate": "2026-10-29",
                 "endDate": "2026-10-30",
+                "daysCount": 2,
                 "reason": "Về quê dự đám cưới em họ",
             },
             "computed": {"daysRequested": 2},

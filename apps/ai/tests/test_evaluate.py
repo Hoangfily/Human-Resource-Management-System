@@ -127,12 +127,30 @@ async def test_missing_context_escalates_without_calling_llm(
     assert llm.prompts == []
 
 
+async def test_payload_without_leave_type_escalates_without_calling_llm(
+    client: httpx.AsyncClient, store: MockStore, llm: FakeLLM
+) -> None:
+    payload = store.requests["req-demo-1"]["payload"]
+    del payload["leaveTypeId"], payload["leaveType"]
+    body = (await evaluate(client)).json()
+    assert body["action"] == "ESCALATE" and "ValidationError" in body["reasons"][0]
+    assert llm.prompts == []
+
+
+async def test_real_api_without_ai_decision_route_is_reported(client: httpx.AsyncClient, store: MockStore) -> None:
+    store.missing_paths.add("/ai-decision")  # Current state of apps/api
+    body = (await evaluate(client)).json()
+    assert (body["action"], body["applied"]) == ("APPROVE", False)
+    assert "HTTP_404" in body["reasons"][-1]
+    assert store.requests["req-demo-1"]["status"] == "PENDING"
+
+
 async def test_unsupported_type_escalates_without_calling_llm(
     client: httpx.AsyncClient, store: MockStore, llm: FakeLLM
 ) -> None:
-    store.requests["req-demo-1"]["type"] = "OVERTIME"
+    store.requests["req-demo-1"]["type"] = "SHIFT_CHANGE"
     body = (await evaluate(client)).json()
-    assert body["action"] == "ESCALATE" and "OVERTIME chưa được AI hỗ trợ" in body["reasons"][0]
+    assert body["action"] == "ESCALATE" and "SHIFT_CHANGE chưa được AI hỗ trợ" in body["reasons"][0]
     assert llm.prompts == []
 
 

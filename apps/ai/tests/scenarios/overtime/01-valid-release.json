@@ -1,0 +1,29 @@
+{
+  "id": "ot-01-valid-release",
+  "description": "OT 2 giờ sau ca, đăng ký trước 2 ngày, lý do công việc rõ ràng",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-21",
+      "startTime": "18:00",
+      "endTime": "20:00",
+      "reason": "Hỗ trợ triển khai bản phát hành 2.3 cho khách hàng, cần chạy migration ngoài giờ"
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.93,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH",
+      "OT.MAX_TOTAL_HOURS_PER_DAY"
+    ],
+    "rationale": "Lý do triển khai rõ ràng, sau ca, trong giới hạn giờ.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

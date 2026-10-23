@@ -3,7 +3,15 @@
 from datetime import date
 
 from ..schemas.common import RequestType
-from ..schemas.requests import AutonomyConfig, EmployeeContext, LeaveBalance, PolicySet, RequestDetail
+from ..schemas.requests import (
+    AutonomyConfig,
+    EmployeeContext,
+    LeaveBalance,
+    Policy,
+    PolicySet,
+    RequestDetail,
+    ScheduleEntry,
+)
 from .base import ApiClient
 
 
@@ -26,24 +34,31 @@ async def list_requests(
     *,
     type: RequestType | None = None,
     since: date | None = None,
+    limit: int = 100,
 ) -> list[RequestDetail]:
-    params = {
-        "employeeId": employee_id,
-        "type": type.value if type else None,
-        "from": since.isoformat() if since else None,
-    }
-    body = await api.get("/requests", params=params)
-    return [RequestDetail.model_validate(r) for r in body["items"]]
+    """GET /requests returns a plain array (newest first) and has no date filter: `since` is applied here."""
+    params = {"employeeId": employee_id, "type": type.value if type else None, "limit": limit}
+    requests = [RequestDetail.model_validate(r) for r in await api.get("/requests", params=params)]
+    if since:
+        requests = [r for r in requests if r.created_at.date() >= since]
+    return requests
+
+
+async def get_schedules(api: ApiClient, employee_id: str, start: date, end: date) -> list[ScheduleEntry]:
+    """GET /shifts/schedules: assigned shifts of one employee between two days (inclusive)."""
+    params = {"employeeId": employee_id, "from": start.isoformat(), "to": end.isoformat()}
+    return [ScheduleEntry.model_validate(s) for s in await api.get("/shifts/schedules", params=params)]
 
 
 async def get_policies(api: ApiClient) -> PolicySet:
-    return PolicySet.model_validate(await api.get("/policies"))
+    """GET /policy returns the active policies as a plain array."""
+    items = [Policy.model_validate(p) for p in await api.get("/policy")]
+    return PolicySet(version=items[0].version if items else "unknown", items=items)
 
 
 async def get_autonomy_config(api: ApiClient, request_type: RequestType) -> AutonomyConfig:
-    """Missing config means the most restrictive level (fail safe)."""
-    body = await api.get("/autonomy-config")
-    for item in body["items"]:
+    """GET /agent/autonomy-config returns an array. A missing type means the most restrictive level."""
+    for item in await api.get("/agent/autonomy-config"):
         config = AutonomyConfig.model_validate(item)
         if config.request_type == request_type:
             return config

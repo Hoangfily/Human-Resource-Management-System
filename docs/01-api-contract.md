@@ -13,20 +13,23 @@ Business rules and status transitions are defined in `05-business-spec.md`; poli
 | GET | `/employees/:id` | Manager, HR, AI | Employee profile (AI receives no contact details) |
 | GET | `/leave/balance` | User, AI | Leave balance (`?employeeId=` for manager/HR/AI) |
 | GET | `/schedules` | User, AI | Schedule entries visible to caller (`?employeeId=&departmentId=&from=&to=`) |
-| GET | `/requests` | User, AI | List requests visible to caller (`?status=&type=&employeeId=&cursor=`) |
+| GET | `/requests` | User, AI | Requests visible to caller, newest first (`?status=&type=&employeeId=&limit=&offset=`). Returns a plain array |
 | POST | `/requests` | User, AI | Create a draft request |
 | GET | `/requests/:id` | User, AI | Request details, status, approvals, AI decision |
 | POST | `/requests/:id/check` | User, AI | Run validation + hard rules without changing state |
 | POST | `/requests/:id/submit` | User, AI | DRAFT → PENDING (AI only after user confirmation) |
 | POST | `/requests/:id/cancel` | User | Cancel (see allowed transitions) |
 | POST | `/requests/:id/escalate` | User, AI | Move to ESCALATED with reason |
-| POST | `/requests/:id/ai-decision` | AI (service token) | AI approves/rejects a PENDING request |
+| POST | `/requests/:id/ai-decision` | AI (service token) | AI approves/rejects a PENDING request. **Not built in apps/api yet** |
 | POST | `/requests/:id/decision` | Manager, HR | Human decision on PENDING/ESCALATED, or override of an AI/SYSTEM decision |
 | POST | `/requests/:id/return` | Manager, HR | ESCALATED → DRAFT to ask for more information |
-| GET | `/policies` | User, AI | Active `CompanyPolicy` entries with `version` |
-| GET | `/autonomy-config` | AI, HR, Admin | Autonomy level per request type |
-| PUT | `/autonomy-config/:type` | HR, Admin | Change autonomy level |
-| POST | `/agent/chat` | User | Proxy a chat turn to the AI service |
+| GET | `/policy` | User, AI | Active `CompanyPolicy` entries (`?search=&activeOnly=`). Returns an array of `{ key, version, title, content, isActive }` |
+| GET | `/policy/:key` | User, AI | One policy entry |
+| POST | `/policy` | HR, Admin | Create or update a policy entry |
+| GET | `/agent/autonomy-config` | AI, HR, Admin | Array of `{ requestType, level, minConfidence }`, one per request type |
+| PUT | `/agent/autonomy-config/:requestType` | HR, Admin | Change autonomy level |
+| GET | `/agent/traces` | HR, Admin | Latest AgentTrace rows (`?limit=`) |
+| POST | `/agent/chat` | User | Forwards the turn to the AI service `POST /api/chat`; answers from a built-in fallback while the AI service is down |
 
 ## Payload Schemas (JSON Mẫu)
 
@@ -245,8 +248,9 @@ The call can take up to ~40 s (LLM + fallback model). Call it **asynchronously**
 
 ## Request conventions
 
-- Authenticated endpoints use `Authorization: Bearer <access-token>`. The AI service uses a dedicated service token and acts **on behalf of** a user via the `X-On-Behalf-Of: <employeeId>` header, except for `/ai-decision`.
+- Authenticated endpoints use `Authorization: Bearer <access-token>`. The AI service uses a dedicated service token and acts **on behalf of** a user via the `X-On-Behalf-Of: <employeeId>` header, except for `/ai-decision`. **Not built in apps/api yet:** every route currently accepts only a user JWT.
 - Request identifiers are opaque strings; timestamps are ISO 8601 UTC.
-- Paginated lists use `items`, `nextCursor`; mutation endpoints accept `idempotencyKey` and must be idempotent.
+- List endpoints return plain arrays with `limit`/`offset`; mutation endpoints accept `idempotencyKey` and must be idempotent.
+- LEAVE payloads from the web carry `leaveType` (code) and `daysCount`; the API adds `leaveTypeId`. `computed.daysRequested` is the value that counts, never the client's `daysCount`.
 - The API validates permissions, hard rules and autonomy limits on every write, including writes initiated by the AI.
 - Every write carries an `X-Correlation-Id` header (generated if absent) that is stored in the audit log.

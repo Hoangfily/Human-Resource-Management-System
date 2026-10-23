@@ -4,7 +4,6 @@ Only what the decision needs reaches the LLM: no contact details, no reasons fro
 past requests, attachment count instead of URLs.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -15,9 +14,9 @@ from ..schemas.common import RequestType
 from ..schemas.requests import EmployeeContext, LeaveBalance, LeavePayload, PolicySet, RequestDetail
 from ..tools.base import ApiClient
 from ..tools.read_tools import get_employee, get_leave_balance, get_policies, list_requests
+from .base import BuiltPrompt, day_label, policy_lines, to_json
 
 HISTORY_DAYS = 90
-_WEEKDAYS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
 
 
 @dataclass(frozen=True)
@@ -30,20 +29,17 @@ class LeaveContext:
     policies: PolicySet
     today: date
 
-    def leave_type_code(self, leave_type_id: str) -> str:
-        return next((b.leave_type_code for b in self.balances if b.leave_type_id == leave_type_id), "UNKNOWN")
+    def _balance_for(self, payload: LeavePayload) -> LeaveBalance | None:
+        """Match by leaveTypeId; fall back to the code when the API could not resolve the id."""
+        by_id = next((b for b in self.balances if payload.leave_type_id and b.leave_type_id == payload.leave_type_id), None)
+        return by_id or next((b for b in self.balances if b.leave_type_code == payload.leave_type), None)
+
+    def leave_type_code(self, payload: LeavePayload) -> str:
+        balance = self._balance_for(payload)
+        return balance.leave_type_code if balance else (payload.leave_type or "UNKNOWN")
 
     def balance(self) -> LeaveBalance | None:
-        return next((b for b in self.balances if b.leave_type_id == self.payload.leave_type_id), None)
-
-
-@dataclass(frozen=True)
-class BuiltPrompt:
-    system: str
-    user: str
-    prompt_version: str
-    injection_flags: list[str]
-    days_requested: float
+        return self._balance_for(self.payload)
 
 
 async def gather_leave_context(api: ApiClient, request: RequestDetail, today: date) -> LeaveContext:
@@ -74,10 +70,6 @@ def days_requested(ctx: LeaveContext) -> float:
     return count_working_days(ctx.payload.start_date, ctx.payload.end_date, ctx.payload.half_day)
 
 
-def _day(d: date) -> str:
-    return f"{d.isoformat()} ({_WEEKDAYS[d.weekday()]})"
-
-
 def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
     prompt = load_prompt("leave_decision")
     payload = ctx.payload
@@ -87,9 +79,9 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
 
     request_info = {
         "id": ctx.request.id,
-        "leaveType": ctx.leave_type_code(payload.leave_type_id),
-        "startDate": _day(payload.start_date),
-        "endDate": _day(payload.end_date),
+        "leaveType": ctx.leave_type_code(payload),
+        "startDate": day_label(payload.start_date),
+        "endDate": day_label(payload.end_date),
         "halfDay": payload.half_day,
         "daysRequested": days,
         "calendarDaysUntilStart": (payload.start_date - ctx.today).days,
@@ -104,34 +96,30 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
         past_payload = past.leave_payload()
         history.append(
             {
-                "leaveType": ctx.leave_type_code(past_payload.leave_type_id),
-                "startDate": _day(past_payload.start_date),
-                "endDate": _day(past_payload.end_date),
+                "leaveType": ctx.leave_type_code(past_payload),
+                "startDate": day_label(past_payload.start_date),
+                "endDate": day_label(past_payload.end_date),
                 "days": past.computed.get("daysRequested"),
                 "status": past.status.value,
             }
         )
-    policies = "\n".join(f"- {p.key}: {p.title}. {p.content}" for p in ctx.policies.items)
 
     user = "\n\n".join(
         [
-            f"## Today\n{_day(ctx.today)}",
-            f"## Request\n{_json(request_info)}",
+            f"## Today\n{day_label(ctx.today)}",
+            f"## Request\n{to_json(request_info)}",
             f"## Reason\n{wrap_untrusted(reason, 'reason')}",
-            f"## Employee\n{_json(employee)}",
-            f"## Balance for this leave type\n{_json(balance.to_api() if balance else None)}",
-            f"## Leave history (last {HISTORY_DAYS} days, this request excluded)\n{_json(history)}",
-            f"## Policies (version {ctx.policies.version}). Cite only these keys.\n{policies}",
+            f"## Employee\n{to_json(employee)}",
+            f"## Balance for this leave type\n{to_json(balance.to_api() if balance else None)}",
+            f"## Leave history (last {HISTORY_DAYS} days, this request excluded)\n{to_json(history)}",
+            f"## Policies (version {ctx.policies.version}). Cite only these keys.\n{policy_lines(ctx.policies)}",
         ]
     )
     return BuiltPrompt(
         system=prompt.text,
         user=user,
         prompt_version=prompt.version,
+        policies=ctx.policies,
         injection_flags=detect_injection(payload.reason),
         days_requested=days,
     )
-
-
-def _json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2)

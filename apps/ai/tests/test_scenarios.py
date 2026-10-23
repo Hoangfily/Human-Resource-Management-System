@@ -15,7 +15,7 @@ from app.schemas.common import FinalAction
 
 pytestmark = pytest.mark.anyio
 
-SCENARIOS = load_scenarios("leave")
+SCENARIOS = load_scenarios("leave") + load_scenarios("overtime")
 SETTINGS = replace(get_settings(), ai_min_confidence=0.85, ai_max_auto_leave_days=3)
 WRITE_ENDPOINT = {FinalAction.APPROVE: "ai-decision", FinalAction.REJECT: "ai-decision", FinalAction.ESCALATE: "escalate"}
 
@@ -32,6 +32,9 @@ async def test_scenario(scenario: Scenario) -> None:
     response, store = await run_scenario(scenario, llm, SETTINGS)
 
     assert response.action is scenario.expected_action, response.reasons
+    hint = scenario.raw["expected"].get("reason_contains")
+    if hint:  # Right outcome for the right reason (not e.g. an unreadable payload)
+        assert any(hint in r for r in response.reasons), response.reasons
     if scenario.expected_action is FinalAction.SKIP:
         assert store.writes == [] and llm.prompts == []
         return

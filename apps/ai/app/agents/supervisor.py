@@ -6,6 +6,7 @@ Fail safe: any failure after the request is loaded ends in an escalation, never 
 """
 
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -21,9 +22,9 @@ from ..schemas.requests import RequestDetail
 from ..tools.base import ApiClient, ApiError
 from ..tools.read_tools import get_autonomy_config, get_request
 from ..tools.write_tools import decide_request, escalate_to_human
+from .base import BuiltPrompt
 from .leave_agent import build_leave_prompt, gather_leave_context
-
-SUPPORTED_TYPES = {RequestType.LEAVE}
+from .overtime_agent import build_overtime_prompt, gather_overtime_context
 
 
 @dataclass
@@ -32,6 +33,20 @@ class EvaluationDeps:
     llm: LLMClient
     settings: Settings
     today: date  # In company timezone
+
+
+@dataclass(frozen=True)
+class TypeAgent:
+    """One specialist per request type: gathers its context, then builds its prompt."""
+
+    gather: Callable[[ApiClient, RequestDetail, date], Awaitable[Any]]
+    build: Callable[[Any, Settings], BuiltPrompt]
+
+
+AGENTS: dict[RequestType, TypeAgent] = {
+    RequestType.LEAVE: TypeAgent(gather_leave_context, lambda ctx, _settings: build_leave_prompt(ctx)),
+    RequestType.OVERTIME: TypeAgent(gather_overtime_context, build_overtime_prompt),
+}
 
 
 async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateResponse:
@@ -46,17 +61,18 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
         )
 
     run = _Run(deps, request)
-    if request.type not in SUPPORTED_TYPES:
+    agent = AGENTS.get(request.type)
+    if agent is None:
         return await run.escalate([f"Loại đơn {request.type} chưa được AI hỗ trợ"])
 
     try:
-        ctx = await gather_leave_context(deps.api, request, deps.today)
-        built = build_leave_prompt(ctx)
+        ctx = await agent.gather(deps.api, request, deps.today)
+        built = agent.build(ctx, deps.settings)
         autonomy = await get_autonomy_config(deps.api, request.type)
     except (ApiError, ValidationError) as exc:
         return await run.escalate([f"Không lấy đủ dữ liệu để đánh giá ({_short(exc)})"])
     run.prompt_version = built.prompt_version
-    run.policy_version = ctx.policies.version
+    run.policy_version = built.policies.version
     run.injection_flags = built.injection_flags
 
     started = time.perf_counter()
@@ -71,11 +87,12 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
     guard = apply_autonomy(
         assessment,
         autonomy,
-        known_policy_keys=ctx.policies.keys(),
+        known_policy_keys=built.policies.keys(),
         global_min_confidence=deps.settings.ai_min_confidence,
         injection_flags=built.injection_flags,
         days_requested=built.days_requested,
         max_auto_days=deps.settings.ai_max_auto_leave_days,
+        limit_reasons=built.limit_reasons,
     )
     if guard.action is FinalAction.ESCALATE:
         return await run.escalate(guard.reasons)
