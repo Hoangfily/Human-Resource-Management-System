@@ -12,7 +12,9 @@
     "build:web": "npm --workspace @hr-agent/web run build",
     "dev:api": "npm --workspace @hr-agent/api run start:dev",
     "build:api": "npm --workspace @hr-agent/api run build",
-    "seed:api": "npm --workspace @hr-agent/api run seed"
+    "seed:api": "npm --workspace @hr-agent/api run seed",
+    "prisma:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
+    "db:push": "prisma db push --schema=apps/api/prisma/schema.prisma"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"

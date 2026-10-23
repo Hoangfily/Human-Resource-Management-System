@@ -65,9 +65,13 @@ export const LoginPage: React.FC = () => {
   const handleQuickDemo = async (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => {
     setSubmitting(true);
     try {
-      await loginAsDemoRole(roleKey);
-      message.success('Đăng nhập tài khoản thành công!');
-      navigate(from, { replace: true });
+      const success = await loginAsDemoRole(roleKey);
+      if (success) {
+        message.success('Đăng nhập tài khoản thành công!');
+        navigate(from, { replace: true });
+      } else {
+        message.error('Đăng nhập thất bại. Vui lòng kiểm tra lại Backend API (cổng 3000).');
+      }
     } catch {
       message.error('Đăng nhập thất bại. Vui lòng thử lại.');
     } finally {
