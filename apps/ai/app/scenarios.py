@@ -11,6 +11,8 @@ Scenario file (tests/scenarios/<type>/*.json):
   "employee": {...},           # merged into the default employee
   "history": [{...}],          # other requests of the employee (short form, see _history_request)
   "schedules": [{...}],        # rows of GET /shifts/schedules: {"date", "shiftStart", "shiftEnd"}
+  "events": [{...}],           # rows of GET /attendance/events: {"type", "timestamp"} (ids ev-0, ev-1, ...)
+  "missing_paths": ["..."],    # API routes that answer 404, e.g. "/attendance/events"
   "autonomy": {"LEAVE": "AUTO_APPROVE_LOW_RISK"},
   "llm": {LLMAssessment} | {"error": "..."},
   "expected": {"action": "APPROVE" | "REJECT" | "ESCALATE" | "SKIP"}
@@ -69,6 +71,9 @@ class Scenario:
             store.add_request(_history_request(f"hist-{i}", item))
         for i, row in enumerate(self.raw.get("schedules", [])):
             store.schedules.append({"id": f"sch-{i}", "employeeId": "emp-001", **row})
+        for i, row in enumerate(self.raw.get("events", [])):
+            store.attendance_events.append({"id": f"ev-{i}", "employeeId": "emp-001", **row})
+        store.missing_paths.update(self.raw.get("missing_paths", []))
         for request_type, level in self.raw.get("autonomy", {}).items():
             store.autonomy[request_type]["level"] = level
         return store

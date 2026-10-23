@@ -4,6 +4,7 @@ from datetime import date
 
 from ..schemas.common import RequestType
 from ..schemas.requests import (
+    AttendanceEvent,
     AutonomyConfig,
     EmployeeContext,
     LeaveBalance,
@@ -12,7 +13,7 @@ from ..schemas.requests import (
     RequestDetail,
     ScheduleEntry,
 )
-from .base import ApiClient
+from .base import ApiClient, ApiError
 
 
 async def get_request(api: ApiClient, request_id: str) -> RequestDetail:
@@ -48,6 +49,27 @@ async def get_schedules(api: ApiClient, employee_id: str, start: date, end: date
     """GET /shifts/schedules: assigned shifts of one employee between two days (inclusive)."""
     params = {"employeeId": employee_id, "from": start.isoformat(), "to": end.isoformat()}
     return [ScheduleEntry.model_validate(s) for s in await api.get("/shifts/schedules", params=params)]
+
+
+async def get_attendance_events(
+    api: ApiClient, employee_id: str, start: date, end: date
+) -> list[AttendanceEvent] | None:
+    """GET /attendance/events: raw clock events of one employee (not in apps/api yet).
+
+    None means "no trustworthy data": the route does not exist (404) or it answered with
+    another person's events. Callers must then escalate instead of guessing.
+    """
+    params = {"employeeId": employee_id, "from": start.isoformat(), "to": end.isoformat()}
+    try:
+        rows = await api.get("/attendance/events", params=params)
+    except ApiError as exc:
+        if exc.status == 404:
+            return None
+        raise
+    events = [AttendanceEvent.model_validate(r) for r in rows]
+    if any(e.employee_id != employee_id for e in events):
+        return None
+    return events
 
 
 async def get_policies(api: ApiClient) -> PolicySet:

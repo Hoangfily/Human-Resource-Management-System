@@ -97,6 +97,20 @@ def create_mock_api(store: MockStore) -> FastAPI:
         ]
         return sorted(rows, key=lambda s: s["date"])
 
+    # Not in apps/api yet: the AI needs raw events of any employee (docs/01-api-contract.md).
+    @api.get("/attendance/events")
+    def get_attendance_events(
+        employeeId: str, start: str | None = Query(None, alias="from"), end: str | None = Query(None, alias="to")
+    ) -> list[dict[str, Any]]:
+        rows = [
+            e
+            for e in store.attendance_events
+            if e["employeeId"] == employeeId
+            and (start is None or e["timestamp"][:10] >= start)
+            and (end is None or e["timestamp"][:10] <= end)
+        ]
+        return sorted(rows, key=lambda e: e["timestamp"])
+
     @api.get("/policy")
     def get_policies() -> list[dict[str, Any]]:
         return store.policies["items"]

@@ -79,12 +79,45 @@ class OvertimePayload(ApiModel):
         return (self.end() - self.start()).total_seconds() / 3600
 
 
+AttendanceIssue = Literal["MISSING_CLOCK_IN", "MISSING_CLOCK_OUT", "LATE", "EARLY_LEAVE", "WRONG_TIME"]
+
+# The web app sends `explanationType` (its own codes) and `reason`; the spec says `issue` and `explanation`.
+_WEB_ISSUES = {"FORGOT_CHECK_IN": "MISSING_CLOCK_IN", "FORGOT_CHECK_OUT": "MISSING_CLOCK_OUT"}
+
+
 class AttendanceExplanationPayload(ApiModel):
-    date: date
-    issue: Literal["MISSING_CLOCK_IN", "MISSING_CLOCK_OUT", "LATE", "EARLY_LEAVE", "WRONG_TIME"]
+    date: CompanyDate
+    issue: AttendanceIssue
     attendance_event_id: str | None = None
-    requested_time: datetime | None = None
+    requested_time: str | None = None  # "HH:mm" (company time) or an ISO datetime
     explanation: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_web_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            data = dict(data)
+            if "issue" not in data and "explanationType" in data:
+                data["issue"] = _WEB_ISSUES.get(data["explanationType"], data["explanationType"])
+            if "explanation" not in data and "reason" in data:
+                data["explanation"] = data["reason"]
+        return data
+
+    @field_validator("requested_time")
+    @classmethod
+    def _time_or_datetime(cls, value: str | None) -> str | None:
+        if value is not None and not _HH_MM.match(value):
+            datetime.fromisoformat(value)  # Raises ValueError for anything else
+        return value
+
+    def requested(self) -> datetime | None:
+        """The time the employee asks to record, in company time."""
+        if self.requested_time is None:
+            return None
+        if _HH_MM.match(self.requested_time):
+            return datetime.combine(self.date, time.fromisoformat(self.requested_time), company_tz())
+        moment = datetime.fromisoformat(self.requested_time)
+        return (moment if moment.tzinfo else moment.replace(tzinfo=company_tz())).astimezone(company_tz())
 
 
 class ShiftChangePayload(ApiModel):
@@ -128,6 +161,9 @@ class RequestDetail(ApiModel):
     def overtime_payload(self) -> OvertimePayload:
         return OvertimePayload.model_validate(self.payload)
 
+    def attendance_payload(self) -> AttendanceExplanationPayload:
+        return AttendanceExplanationPayload.model_validate(self.payload)
+
 
 class EmployeeContext(ApiModel):
     """Employee fields the AI may use. Contact details are deliberately absent."""
@@ -148,6 +184,18 @@ class ScheduleEntry(ApiModel):
     date: CompanyDate
     shift_start: datetime
     shift_end: datetime
+
+
+class AttendanceEvent(ApiModel):
+    """One raw clock event (GET /attendance/events)."""
+
+    id: str
+    employee_id: str
+    type: Literal["CLOCK_IN", "CLOCK_OUT"]
+    timestamp: datetime
+
+    def local(self) -> datetime:
+        return self.timestamp.astimezone(company_tz())
 
 
 class LeaveBalance(ApiModel):

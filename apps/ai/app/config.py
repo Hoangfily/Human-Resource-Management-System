@@ -29,6 +29,11 @@ class Settings:
     ot_max_total_hours_per_day: float  # OT.MAX_TOTAL_HOURS_PER_DAY (shift + OT)
     ot_max_hours_per_month: float  # OT.MAX_HOURS_PER_MONTH
     ot_max_hours_per_year: float  # OT.MAX_HOURS_PER_YEAR
+    att_explain_within_days: int  # ATTENDANCE.EXPLAIN_WITHIN_DAYS (working days)
+    att_shift_tolerance_minutes: int  # ATTENDANCE.SHIFT_TOLERANCE_MINUTES
+    att_major_deviation_minutes: int  # ATTENDANCE.MAJOR_DEVIATION_MINUTES
+    att_evidence_after_minutes: int  # ATTENDANCE.EVIDENCE_REQUIRED_AFTER_MINUTES
+    att_max_auto_per_month: int  # ATTENDANCE.MAX_AUTO_PER_MONTH
     company_timezone: str
 
 
@@ -51,5 +56,10 @@ def get_settings() -> Settings:
         ot_max_total_hours_per_day=_float("OT_MAX_TOTAL_HOURS_PER_DAY", 12),
         ot_max_hours_per_month=_float("OT_MAX_HOURS_PER_MONTH", 40),
         ot_max_hours_per_year=_float("OT_MAX_HOURS_PER_YEAR", 200),
+        att_explain_within_days=int(_float("ATT_EXPLAIN_WITHIN_DAYS", 3)),
+        att_shift_tolerance_minutes=int(_float("ATT_SHIFT_TOLERANCE_MINUTES", 60)),
+        att_major_deviation_minutes=int(_float("ATT_MAJOR_DEVIATION_MINUTES", 120)),
+        att_evidence_after_minutes=int(_float("ATT_EVIDENCE_AFTER_MINUTES", 30)),
+        att_max_auto_per_month=int(_float("ATT_MAX_AUTO_PER_MONTH", 3)),
         company_timezone=os.getenv("COMPANY_TIMEZONE", "Asia/Ho_Chi_Minh"),
     )

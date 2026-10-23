@@ -4,9 +4,8 @@ Hour limits (per request, per day, per month, per year) are checked here in code
 returned as `limit_reasons`: the LLM is told about them but never decides them.
 """
 
-import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from pydantic import ValidationError
 
@@ -21,16 +20,15 @@ from ..schemas.requests import (
     PolicySet,
     RequestDetail,
     ScheduleEntry,
-    company_tz,
 )
 from ..tools.base import ApiClient
 from ..tools.read_tools import get_employee, get_policies, get_schedules, list_requests
 from .base import BuiltPrompt, day_label, policy_lines, to_json
+from .shifts import ShiftWindow, shift_for_day
 
 HISTORY_DAYS = 90
 # OT that already counts against the monthly/yearly limits
 COUNTED = {RequestStatus.PENDING, RequestStatus.ESCALATED, RequestStatus.APPROVED}
-_SHIFT_TIME = re.compile(r"(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})")
 
 
 @dataclass(frozen=True)
@@ -42,16 +40,6 @@ class OvertimeContext:
     history: list[RequestDetail]  # Other OVERTIME requests since Jan 1 (or the last 90 days)
     policies: PolicySet
     today: date
-
-
-@dataclass(frozen=True)
-class ShiftWindow:
-    start: datetime
-    end: datetime
-    source: str  # "schedule" | "defaultShift"
-
-    def hours(self) -> float:
-        return (self.end - self.start).total_seconds() / 3600
 
 
 async def gather_overtime_context(api: ApiClient, request: RequestDetail, today: date) -> OvertimeContext:
@@ -70,17 +58,7 @@ async def gather_overtime_context(api: ApiClient, request: RequestDetail, today:
 
 
 def shift_window(ctx: OvertimeContext) -> ShiftWindow | None:
-    """The shift worked that day: the assigned schedule, else the default shift on a weekday (Mon-Fri)."""
-    tz = company_tz()
-    if ctx.schedule:
-        return ShiftWindow(ctx.schedule.shift_start.astimezone(tz), ctx.schedule.shift_end.astimezone(tz), "schedule")
-    if ctx.payload.date.weekday() >= 5:
-        return None  # COMPANY.WORKING_DAYS: no default shift at the weekend
-    match = _SHIFT_TIME.search(ctx.employee.shift_time or "")
-    if not match:
-        return None
-    start, end = (datetime.combine(ctx.payload.date, datetime.strptime(t, "%H:%M").time(), tz) for t in match.groups())
-    return ShiftWindow(start, end, "defaultShift")
+    return shift_for_day(ctx.payload.date, ctx.schedule, ctx.employee)
 
 
 def counted_hours(ctx: OvertimeContext) -> tuple[float, float]:
@@ -155,11 +133,7 @@ def build_overtime_prompt(ctx: OvertimeContext, settings: Settings) -> BuiltProm
         "attachmentCount": len(ctx.request.attachments),
         "createdBy": ctx.request.created_by_type.value,
     }
-    shift = (
-        {"source": window.source, "start": f"{window.start:%H:%M}", "end": f"{window.end:%H:%M}"}
-        if window
-        else None
-    )
+    shift = window.to_prompt() if window else None
     totals = {
         "monthHoursBefore": round(month, 2),
         "monthHoursAfter": round(month + hours, 2),

@@ -15,7 +15,7 @@ from app.schemas.common import FinalAction
 
 pytestmark = pytest.mark.anyio
 
-SCENARIOS = load_scenarios("leave") + load_scenarios("overtime")
+SCENARIOS = load_scenarios("leave") + load_scenarios("overtime") + load_scenarios("attendance")
 SETTINGS = replace(get_settings(), ai_min_confidence=0.85, ai_max_auto_leave_days=3)
 WRITE_ENDPOINT = {FinalAction.APPROVE: "ai-decision", FinalAction.REJECT: "ai-decision", FinalAction.ESCALATE: "escalate"}
 

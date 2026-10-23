@@ -22,6 +22,7 @@ from ..schemas.requests import RequestDetail
 from ..tools.base import ApiClient, ApiError
 from ..tools.read_tools import get_autonomy_config, get_request
 from ..tools.write_tools import decide_request, escalate_to_human
+from .attendance_agent import build_attendance_prompt, gather_attendance_context
 from .base import BuiltPrompt
 from .leave_agent import build_leave_prompt, gather_leave_context
 from .overtime_agent import build_overtime_prompt, gather_overtime_context
@@ -46,6 +47,7 @@ class TypeAgent:
 AGENTS: dict[RequestType, TypeAgent] = {
     RequestType.LEAVE: TypeAgent(gather_leave_context, lambda ctx, _settings: build_leave_prompt(ctx)),
     RequestType.OVERTIME: TypeAgent(gather_overtime_context, build_overtime_prompt),
+    RequestType.ATTENDANCE_EXPLANATION: TypeAgent(gather_attendance_context, build_attendance_prompt),
 }
 
 

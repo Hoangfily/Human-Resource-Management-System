@@ -1,0 +1,64 @@
+{
+  "id": "att-06-fourth-in-month",
+  "description": "Đã có 3 đơn giải trình trong tháng 10, đây là đơn thứ 4",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "MISSING_CLOCK_OUT",
+      "requestedTime": "17:32",
+      "explanation": "Quên chấm công ra do vội đón con"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T01:25:00Z"
+    }
+  ],
+  "history": [
+    {
+      "type": "ATTENDANCE_EXPLANATION",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-02",
+        "issue": "LATE"
+      },
+      "createdAt": "2026-10-02T03:00:00Z"
+    },
+    {
+      "type": "ATTENDANCE_EXPLANATION",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-07",
+        "issue": "LATE"
+      },
+      "createdAt": "2026-10-07T03:00:00Z"
+    },
+    {
+      "type": "ATTENDANCE_EXPLANATION",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-09",
+        "issue": "LATE"
+      },
+      "createdAt": "2026-10-09T03:00:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "thứ 4 trong tháng"
+  }
+}
