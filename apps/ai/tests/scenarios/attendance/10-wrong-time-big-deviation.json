@@ -1,0 +1,43 @@
+{
+  "id": "att-10-wrong-time-big-deviation",
+  "description": "Sửa giờ ra 12:00 thành 17:40: lệch 340 phút, vượt 120 phút",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "WRONG_TIME",
+      "attendanceEventId": "ev-1",
+      "requestedTime": "17:40",
+      "explanation": "Lỡ bấm chấm ra lúc nghỉ trưa, thực tế về lúc 17:40"
+    },
+    "attachments": [
+      "anh-man-hinh.png"
+    ]
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T01:30:00Z"
+    },
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-16T05:00:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.85,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Có ảnh chụp màn hình.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Lệch 340 phút"
+  }
+}

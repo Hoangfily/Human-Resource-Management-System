@@ -1,0 +1,38 @@
+{
+  "id": "att-03-late-75-no-evidence",
+  "description": "Đi muộn 75 phút mà không đính kèm bằng chứng",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "LATE",
+      "explanation": "Xe hỏng giữa đường"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T02:45:00Z"
+    },
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-16T10:35:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.88,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Lý do hợp lý.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "không có bằng chứng"
+  }
+}

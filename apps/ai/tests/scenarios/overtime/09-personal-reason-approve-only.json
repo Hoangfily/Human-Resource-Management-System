@@ -1,0 +1,29 @@
+{
+  "id": "ot-09-personal-reason-approve-only",
+  "description": "Lý do không phải công việc; OT ở mức AUTO_APPROVE_LOW_RISK nên AI không được tự từ chối",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-21",
+      "startTime": "18:00",
+      "endTime": "20:00",
+      "reason": "Ở lại văn phòng chờ bạn đi ăn tối"
+    }
+  },
+  "llm": {
+    "decision": "REJECTED",
+    "risk_level": "LOW",
+    "confidence": 0.92,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH"
+    ],
+    "rationale": "Không phải công việc.",
+    "employee_message": "Thời gian này không phải công việc của công ty nên không tính làm thêm giờ."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "không cho AI tự từ chối"
+  }
+}

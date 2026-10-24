@@ -1,0 +1,20 @@
+{
+  "id": "leave-01-annual-valid",
+  "description": "Phép năm 2 ngày, báo trước 10 ngày, lý do rõ ràng, đủ quỹ phép",
+  "today": "2026-10-19",
+  "live": true,
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.95,
+    "policy_refs": [
+      "LEAVE.ANNUAL_DAYS_PER_YEAR",
+      "LEAVE.NOTICE_DAYS"
+    ],
+    "rationale": "Lý do hợp lý, đủ phép, báo trước đúng hạn.",
+    "employee_message": "Đơn nghỉ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

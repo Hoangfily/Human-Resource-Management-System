@@ -1,0 +1,60 @@
+{
+  "id": "shift-10-spec-payload-with-schedule-id",
+  "description": "Payload đúng spec (scheduleId, newShiftTemplateId): ca hành chính thứ 5 sang ca sáng, nghỉ đủ trước và sau",
+  "today": "2026-10-19",
+  "live": true,
+  "employees": [
+    {
+      "id": "emp-201",
+      "fullName": "Tran Thi B",
+      "email": "b@example.com"
+    },
+    {
+      "id": "emp-202",
+      "fullName": "Le Van C",
+      "email": "c@example.com"
+    }
+  ],
+  "request": {
+    "type": "SHIFT_CHANGE",
+    "payload": {
+      "scheduleId": "sch-0",
+      "newShiftTemplateId": "tpl-morning",
+      "reason": "Chiều thứ 5 đi khám sức khỏe định kỳ theo lịch của công ty"
+    }
+  },
+  "schedules": [
+    {
+      "employeeId": "emp-001",
+      "date": "2026-10-22T00:00:00.000Z",
+      "shiftStart": "2026-10-22T01:30:00.000Z",
+      "shiftEnd": "2026-10-22T10:30:00.000Z"
+    },
+    {
+      "employeeId": "emp-201",
+      "date": "2026-10-22T00:00:00.000Z",
+      "shiftStart": "2026-10-22T01:30:00.000Z",
+      "shiftEnd": "2026-10-22T10:30:00.000Z"
+    },
+    {
+      "employeeId": "emp-202",
+      "date": "2026-10-22T00:00:00.000Z",
+      "shiftStart": "2026-10-22T01:30:00.000Z",
+      "shiftEnd": "2026-10-22T10:30:00.000Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.92,
+    "policy_refs": [
+      "SHIFT.NOTICE_HOURS",
+      "SHIFT.MIN_REST_HOURS"
+    ],
+    "rationale": "Lý do cụ thể, đủ người, nghỉ đủ giữa các ca.",
+    "employee_message": "Đơn đổi ca của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "ot-02-retroactive",
+  "description": "Đăng ký OT cho ngày thứ 7 đã qua: OT hồi tố phải chuyển người duyệt",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-17",
+      "startTime": "09:00",
+      "endTime": "12:00",
+      "reason": "Sửa lỗi khẩn cấp hệ thống thanh toán"
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH",
+      "OT.MAX_TOTAL_HOURS_PER_DAY"
+    ],
+    "rationale": "Sự cố khẩn cấp.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "OT hồi tố"
+  }
+}

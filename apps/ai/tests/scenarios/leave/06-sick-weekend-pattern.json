@@ -1,0 +1,47 @@
+{
+  "id": "leave-06-sick-weekend-pattern",
+  "description": "Nghỉ ốm thứ 2, trước đó 3 lần nghỉ ốm sát cuối tuần trong 90 ngày, không có giấy",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "leaveTypeId": "lt-sick",
+      "startDate": "2026-10-19",
+      "endDate": "2026-10-19",
+      "reason": "Em bị mệt"
+    },
+    "computed": {
+      "daysRequested": 1
+    }
+  },
+  "history": [
+    {
+      "leaveTypeId": "lt-sick",
+      "startDate": "2026-08-28",
+      "createdAt": "2026-08-28T01:00:00Z"
+    },
+    {
+      "leaveTypeId": "lt-sick",
+      "startDate": "2026-09-14",
+      "createdAt": "2026-09-14T01:00:00Z"
+    },
+    {
+      "leaveTypeId": "lt-sick",
+      "startDate": "2026-10-09",
+      "createdAt": "2026-10-09T01:00:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "ESCALATED",
+    "risk_level": "MEDIUM",
+    "confidence": 0.8,
+    "policy_refs": [
+      "LEAVE.SICK_BACKDATE_DAYS"
+    ],
+    "rationale": "Nghỉ ốm lặp lại sát cuối tuần.",
+    "employee_message": "Đơn của bạn đã được chuyển cho quản lý xem xét."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}
