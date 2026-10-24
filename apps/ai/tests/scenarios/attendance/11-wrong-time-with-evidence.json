@@ -1,0 +1,42 @@
+{
+  "id": "att-11-wrong-time-with-evidence",
+  "description": "Máy chấm công ghi 09:05, đề nghị sửa 08:28, có ảnh camera: lệch 37 phút, có bằng chứng",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "WRONG_TIME",
+      "attendanceEventId": "ev-0",
+      "requestedTime": "08:28",
+      "explanation": "Máy chấm công lỗi ghi nhận trễ, camera cổng lúc 08:28 có hình em vào"
+    },
+    "attachments": [
+      "camera-cong-0828.jpg"
+    ]
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T02:05:00Z"
+    },
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-16T10:32:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Có bằng chứng camera, lệch 37 phút.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

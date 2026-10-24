@@ -1,0 +1,19 @@
+{
+  "id": "leave-07-low-confidence",
+  "description": "LLM đề xuất duyệt nhưng độ tin cậy 0.7 dưới ngưỡng 0.85 (kiểm tra guard)",
+  "today": "2026-10-19",
+  "live": false,
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.7,
+    "policy_refs": [
+      "LEAVE.NOTICE_DAYS"
+    ],
+    "rationale": "Có vẻ hợp lệ.",
+    "employee_message": "Đơn nghỉ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}

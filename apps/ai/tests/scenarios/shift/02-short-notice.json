@@ -1,0 +1,55 @@
+{
+  "id": "shift-02-short-notice",
+  "description": "Đổi ca cho ngày mai: chỉ báo trước 23.5 giờ",
+  "today": "2026-10-19",
+  "live": true,
+  "employees": [
+    {
+      "id": "emp-201",
+      "fullName": "Tran Thi B",
+      "email": "b@example.com"
+    },
+    {
+      "id": "emp-202",
+      "fullName": "Le Van C",
+      "email": "c@example.com"
+    }
+  ],
+  "request": {
+    "type": "SHIFT_CHANGE",
+    "payload": {
+      "shiftDate": "2026-10-20",
+      "targetShiftId": "tpl-afternoon",
+      "reason": "Chiều thứ 6 hỗ trợ khách hàng châu Âu theo giờ làm việc của họ"
+    }
+  },
+  "schedules": [
+    {
+      "employeeId": "emp-201",
+      "date": "2026-10-20T00:00:00.000Z",
+      "shiftStart": "2026-10-20T01:30:00.000Z",
+      "shiftEnd": "2026-10-20T10:30:00.000Z"
+    },
+    {
+      "employeeId": "emp-202",
+      "date": "2026-10-20T00:00:00.000Z",
+      "shiftStart": "2026-10-20T01:30:00.000Z",
+      "shiftEnd": "2026-10-20T10:30:00.000Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "SHIFT.NOTICE_HOURS",
+      "SHIFT.MIN_REST_HOURS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn đổi ca của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Báo trước 23.5 giờ"
+  }
+}

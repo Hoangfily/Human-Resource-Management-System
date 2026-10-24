@@ -1,0 +1,55 @@
+{
+  "id": "shift-01-valid-web-payload",
+  "description": "Đổi ca hành chính thứ 6 sang ca chiều, báo trước 4 ngày, còn đủ 2 người ở ca cũ; payload đúng kiểu web (shiftDate, targetShiftId)",
+  "today": "2026-10-19",
+  "live": true,
+  "employees": [
+    {
+      "id": "emp-201",
+      "fullName": "Tran Thi B",
+      "email": "b@example.com"
+    },
+    {
+      "id": "emp-202",
+      "fullName": "Le Van C",
+      "email": "c@example.com"
+    }
+  ],
+  "request": {
+    "type": "SHIFT_CHANGE",
+    "payload": {
+      "shiftDate": "2026-10-23",
+      "targetShiftId": "tpl-afternoon",
+      "reason": "Chiều thứ 6 hỗ trợ khách hàng châu Âu theo giờ làm việc của họ",
+      "daysCount": 1
+    }
+  },
+  "schedules": [
+    {
+      "employeeId": "emp-201",
+      "date": "2026-10-23T00:00:00.000Z",
+      "shiftStart": "2026-10-23T01:30:00.000Z",
+      "shiftEnd": "2026-10-23T10:30:00.000Z"
+    },
+    {
+      "employeeId": "emp-202",
+      "date": "2026-10-23T00:00:00.000Z",
+      "shiftStart": "2026-10-23T01:30:00.000Z",
+      "shiftEnd": "2026-10-23T10:30:00.000Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.92,
+    "policy_refs": [
+      "SHIFT.NOTICE_HOURS",
+      "SHIFT.MIN_REST_HOURS"
+    ],
+    "rationale": "Lý do công việc rõ ràng, đủ người, báo trước đủ.",
+    "employee_message": "Đơn đổi ca của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

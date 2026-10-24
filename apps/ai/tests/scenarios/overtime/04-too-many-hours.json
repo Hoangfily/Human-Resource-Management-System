@@ -1,0 +1,30 @@
+{
+  "id": "ot-04-too-many-hours",
+  "description": "OT 5 giờ ngày thứ 7, vượt giới hạn AI tự quyết 4 giờ",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-24",
+      "startTime": "08:00",
+      "endTime": "13:00",
+      "reason": "Kiểm thử hồi quy trước đợt phát hành cuối tháng"
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH",
+      "OT.MAX_TOTAL_HOURS_PER_DAY"
+    ],
+    "rationale": "Hợp lệ, cuối tuần không có ca.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "vượt giới hạn AI tự quyết (4 giờ)"
+  }
+}
