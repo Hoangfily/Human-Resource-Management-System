@@ -198,10 +198,13 @@ class _Run:
         )
         return await self._write(action, [], lambda: decide_request(self.deps.api, self.request.id, body))
 
-    async def _after_uncertain_write(
-        self, action: FinalAction, reasons: list[str], send: Callable[[], Awaitable[DecisionResult]], exc: ApiError, retried: bool
-    ) -> EvaluateResponse:
-        """The write timed out or conflicted: look at the request before deciding what happened."""
+    async def _after_uncertain_write(self, action: FinalAction, reasons: list[str], exc: ApiError) -> EvaluateResponse:
+        """The write timed out, conflicted or hit a 5xx: read the request back and report what it shows.
+
+        Nothing is resent: without a database-backed idempotency check on the API, a resend
+        while the first write is still committing could apply the decision twice. A request
+        still PENDING stays in the manager's queue.
+        """
         target = {
             FinalAction.APPROVE: RequestStatus.APPROVED,
             FinalAction.REJECT: RequestStatus.REJECTED,
@@ -211,17 +214,17 @@ class _Run:
             now = (await get_request(self.deps.api, self.request.id)).status
         except Exception:
             now = None
-        if now is RequestStatus.PENDING and not retried:
-            # Nothing landed: send the same write once more (same idempotency key).
-            return await self._write(action, reasons, send, retried=True)
         applied: bool | None = False
         if now is target:
             note = f"Đơn đã ở trạng thái {now} (có thể do chính lần ghi này), cần kiểm tra lại"
             applied = None  # Cannot tell whether it was us or a person
         elif now is RequestStatus.ESCALATED:
             note = "API đã chuyển đơn cho người duyệt"
+        elif now is RequestStatus.PENDING or now is None:
+            note = f"Không rõ kết quả ghi ({exc.code}); đơn vẫn chờ quản lý duyệt"
+            applied = None
         else:
-            note = f"API không nhận kết quả: {exc.code}" + (f", đơn đang ở trạng thái {now}" if now else "")
+            note = f"API không nhận kết quả: {exc.code}, đơn đang ở trạng thái {now}"
         return EvaluateResponse(
             request_id=self.request.id,
             action=action,
@@ -231,22 +234,14 @@ class _Run:
             assessment=self.assessment,
         )
 
-    async def _write(
-        self,
-        action: FinalAction,
-        reasons: list[str],
-        send: Callable[[], Awaitable[DecisionResult]],
-        retried: bool = False,
-    ) -> EvaluateResponse:
+    async def _write(self, action: FinalAction, reasons: list[str], send: Callable[[], Awaitable[DecisionResult]]) -> EvaluateResponse:
         try:
             result = await send()
         except ApiError as exc:
-            if exc.code == "WRITE_OUTCOME_UNKNOWN" or exc.status == 409:
-                # The write may have landed (timeout), or the request moved on (cancelled, decided by
-                # a manager, or by our own earlier attempt).
-                return await self._after_uncertain_write(action, reasons, send, exc, retried)
-            # Anything else (400, 404, 5xx...) was refused: the request stays where it was, PENDING
-            # requests remain in the manager's queue.
+            if exc.code == "WRITE_OUTCOME_UNKNOWN" or exc.status == 409 or exc.status >= 500:
+                # The write may have landed (timeout, proxy 5xx) or the request moved on.
+                return await self._after_uncertain_write(action, reasons, exc)
+            # 4xx: refused, nothing applied. A PENDING request remains in the manager's queue.
             return EvaluateResponse(
                 request_id=self.request.id,
                 action=action,
@@ -274,6 +269,7 @@ class _Run:
             reasons=reasons,
             assessment=self.assessment,
         )
+
 
 async def _escalate_unreadable(deps: EvaluationDeps, request_id: str, exc: Exception) -> EvaluateResponse:
     """Hand a request we cannot parse to a human by id, without context or trace."""

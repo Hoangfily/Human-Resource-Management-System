@@ -140,3 +140,14 @@ async def test_every_other_shift_on_the_new_day_is_checked(api: ApiClient, store
     with_team(store, THU, "emp-201", "emp-202")
     reasons = check_limits(await context(api), SETTINGS)
     assert "Ca mới trùng với ca khác đã phân ngày 23/10" in reasons  # The second one (21:00) overlaps 14:00-22:00
+
+
+async def test_every_shift_on_a_neighbouring_day_is_checked(api: ApiClient, store: MockStore) -> None:
+    # Saturday has two rows; the second (05:00) leaves only 7h after the new Friday night end (22:00).
+    sat = "2026-10-24"
+    row(store, "emp-001", sat, f"{sat}T07:00:00.000Z", f"{sat}T10:00:00.000Z")  # Sat 14:00-17:00: fine
+    row(store, "emp-001", sat, f"{FRI}T22:00:00.000Z", f"{sat}T01:00:00.000Z")  # Sat 05:00-08:00: too close
+    store.add_request(shift_request("s1", {"shiftDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, FRI, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert any("Chỉ nghỉ 7 giờ giữa hai ca" in r for r in reasons), reasons

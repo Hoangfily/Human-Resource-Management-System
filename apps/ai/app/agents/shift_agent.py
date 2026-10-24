@@ -79,11 +79,18 @@ class ShiftContext:
             end += timedelta(days=1)  # Night shift
         return ShiftWindow(start, end, "template")
 
-    def neighbour(self, day: date) -> ShiftWindow | None:
-        """The shift on a neighbouring day once the change is made."""
+    def neighbours(self, day: date) -> list[ShiftWindow]:
+        """Every shift on a neighbouring day once the change is made (all rows, else the default)."""
         if day == self.base_date and day != self.new_date:
-            return None  # That shift is the one being moved away
-        return shift_for_day(day, self.schedule_on(day), self.employee)
+            return []  # That shift is the one being moved away
+        rows = self.schedules_on(day)
+        if rows:
+            return [w for r in rows if (w := shift_for_day(day, r, self.employee))]
+        default = shift_for_day(day, None, self.employee)
+        return [default] if default else []
+
+    def neighbour(self, day: date) -> ShiftWindow | None:
+        return next(iter(self.neighbours(day)), None)
 
 
 async def gather_shift_context(api: ApiClient, request: RequestDetail, today: date) -> ShiftContext:
@@ -159,14 +166,12 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
             reasons.append(f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ")
 
     for day in (new.start.date() - timedelta(days=1), new.start.date() + timedelta(days=1)):
-        shift = ctx.neighbour(day)
-        if shift is None:
-            continue
-        rest = new.start - shift.end if day < new.start.date() else shift.start - new.end
-        if rest < timedelta(0):  # e.g. the previous night shift still runs when the new one starts
-            reasons.append(f"Ca mới chồng lên ca ngày {day:%d/%m} ({shift.start:%H:%M}–{shift.end:%H:%M})")
-        elif rest < timedelta(hours=settings.shift_min_rest_hours):
-            reasons.append(f"Chỉ nghỉ {_hours(rest):g} giờ giữa hai ca, cần tối thiểu {settings.shift_min_rest_hours:g} giờ")
+        for shift in ctx.neighbours(day):
+            rest = new.start - shift.end if day < new.start.date() else shift.start - new.end
+            if rest < timedelta(0):  # e.g. the previous night shift still runs when the new one starts
+                reasons.append(f"Ca mới chồng lên ca ngày {day:%d/%m} ({shift.start:%H:%M}–{shift.end:%H:%M})")
+            elif rest < timedelta(hours=settings.shift_min_rest_hours):
+                reasons.append(f"Chỉ nghỉ {_hours(rest):g} giờ giữa hai ca, cần tối thiểu {settings.shift_min_rest_hours:g} giờ")
 
     registered = (ctx.request.submitted_at or ctx.request.created_at).astimezone(company_tz())
     earliest = min(w.start for w in (old, new) if w)

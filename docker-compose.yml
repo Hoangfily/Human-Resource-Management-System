@@ -49,8 +49,8 @@ services:
     environment:
       PORT: 8000
       API_BASE_URL: http://api:3000
-      # Same values as the api service. Empty AI_INBOUND_TOKEN: /evaluate answers 503 (fail closed).
-      # Empty AI_SERVICE_TOKEN: the API rejects the AI's calls (401) and /evaluate answers 502.
+      # Both tokens must also be given to the api service (docs/06, not done there yet).
+      # If either is empty, /evaluate answers 503 (fail closed).
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
       AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:-}
       # Without a key the service runs "degraded": every request is escalated to a human.

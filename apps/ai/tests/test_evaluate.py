@@ -43,7 +43,9 @@ def llm() -> FakeLLM:
 
 @pytest.fixture
 async def client(api: ApiClient, llm: FakeLLM) -> AsyncIterator[httpx.AsyncClient]:
-    settings = replace(get_settings(), ai_inbound_token=TOKEN, ai_min_confidence=0.85, ai_max_auto_leave_days=3)
+    settings = replace(
+        get_settings(), ai_inbound_token=TOKEN, ai_service_token="svc", ai_min_confidence=0.85, ai_max_auto_leave_days=3
+    )
 
     async def deps() -> AsyncIterator[EvaluationDeps]:
         yield EvaluationDeps(api=api, llm=llm, settings=settings, today=date(2026, 10, 19))
@@ -240,7 +242,7 @@ async def test_unexpected_llm_client_error_escalates(client: httpx.AsyncClient, 
 async def test_unconfigured_llm_escalates_every_request(client: httpx.AsyncClient, store: MockStore, api: ApiClient) -> None:
     from app.llm import UnavailableLLM
 
-    settings = replace(get_settings(), ai_inbound_token=TOKEN)
+    settings = replace(get_settings(), ai_inbound_token=TOKEN, ai_service_token="svc")
 
     async def deps() -> AsyncIterator[EvaluationDeps]:
         yield EvaluationDeps(api=api, llm=UnavailableLLM("GEMINI_API_KEY is not set"), settings=settings, today=date(2026, 10, 19))
@@ -324,21 +326,38 @@ async def test_logs_never_contain_request_data(client: httpx.AsyncClient, store:
 
 
 # ---- write outcomes (follow-up review) ----
-async def test_write_lost_before_landing_is_sent_once_more(
+async def test_lost_write_is_not_resent_and_stays_with_the_manager(
     client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
 ) -> None:
-    real_post, calls = api.post, []
+    calls = []
 
-    async def flaky(path: str, json: dict) -> object:
+    async def lost(path: str, json: dict) -> object:
         calls.append(path)
-        if len(calls) == 1:
-            raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # Never reached the API
-        return await real_post(path, json)
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # Request still PENDING
 
-    monkeypatch.setattr(api, "post", flaky)
+    monkeypatch.setattr(api, "post", lost)
     body = (await evaluate(client)).json()
-    assert (body["status"], body["applied"]) == ("APPROVED", True)
-    assert len(calls) == 2 and store.writes[-1]["body"]["idempotencyKey"].startswith("ai-eval:")
+    assert len(calls) == 1  # Never resent: no double decision without API-side idempotency
+    assert body["status"] == "PENDING" and "applied" not in body
+    assert body["reasons"][-1] == "Không rõ kết quả ghi (WRITE_OUTCOME_UNKNOWN); đơn vẫn chờ quản lý duyệt"
+
+
+async def test_proxy_5xx_on_a_write_reads_the_request_back(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def applied_then_502(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "APPROVED"
+        raise ApiError(502, "HTTP_502", "bad gateway")
+
+    monkeypatch.setattr(api, "post", applied_then_502)
+    body = (await evaluate(client)).json()
+    assert body["status"] == "APPROVED" and "có thể do chính lần ghi này" in body["reasons"][-1]
+
+
+async def test_fails_closed_when_service_token_not_configured(client: httpx.AsyncClient) -> None:
+    app.dependency_overrides[get_settings] = lambda: replace(get_settings(), ai_inbound_token=TOKEN, ai_service_token="")
+    response = await evaluate(client)
+    assert response.status_code == 503 and "AI_SERVICE_TOKEN" in response.json()["detail"]
 
 
 async def test_api_turning_the_decision_into_an_escalation_is_reported(
