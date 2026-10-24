@@ -113,3 +113,12 @@ async def test_prompt_never_names_colleagues(api: ApiClient, store: MockStore) -
     assert '"template": "Ca chiều"' in built.user and "[PHONE]" in built.user
     for secret in ("Dong Nghiep", "emp-201@example.com", default_employee()["fullName"], "0912345678"):
         assert secret not in built.user
+
+
+async def test_new_shift_overlapping_previous_night_shift_is_flagged(api: ApiClient, store: MockStore) -> None:
+    store.shift_templates.append({"id": "tpl-early", "name": "Ca sớm", "startTime": "05:00", "endTime": "13:00"})
+    row(store, "emp-001", THU, f"{THU}T15:00:00.000Z", f"{THU}T23:00:00.000Z")  # Thu 22:00 -> Fri 06:00 (VN)
+    store.add_request(shift_request("s1", {"shiftDate": FRI, "newShiftTemplateId": "tpl-early"}))
+    with_team(store, FRI, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert any("Ca mới chồng lên ca ngày 22/10 (22:00–06:00)" in r for r in reasons), reasons

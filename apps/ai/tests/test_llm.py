@@ -152,3 +152,19 @@ async def test_gemini_live_smoke() -> None:
     )
     assert result.decision in {"APPROVED", "REJECTED", "ESCALATED"}
     assert 0 <= result.confidence <= 1
+
+
+def test_unbuildable_llm_becomes_unavailable_instead_of_raising() -> None:
+    from app.llm import UnavailableLLM, get_llm_or_unavailable
+
+    settings = get_settings()
+    for broken in (replace(settings, llm_provider="gemini", gemini_api_key=""), replace(settings, llm_provider="nope")):
+        llm = get_llm_or_unavailable(broken)
+        assert isinstance(llm, UnavailableLLM) and llm.last_model == "unavailable"
+
+
+async def test_unavailable_llm_always_raises_llm_error() -> None:
+    from app.llm import UnavailableLLM
+
+    with pytest.raises(LLMError, match="not configured: no key"):
+        await UnavailableLLM("no key").assess("s", "u")

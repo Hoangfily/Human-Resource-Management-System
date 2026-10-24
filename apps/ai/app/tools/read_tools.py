@@ -13,6 +13,7 @@ from ..schemas.requests import (
     RequestDetail,
     ScheduleEntry,
     ShiftTemplate,
+    company_tz,
 )
 from .base import ApiClient, ApiError
 
@@ -36,13 +37,29 @@ async def list_requests(
     *,
     type: RequestType | None = None,
     since: date | None = None,
-    limit: int = 100,
+    page_size: int = 100,
+    max_pages: int = 20,
 ) -> list[RequestDetail]:
-    """GET /requests returns a plain array (newest first) and has no date filter: `since` is applied here."""
-    params = {"employeeId": employee_id, "type": type.value if type else None, "limit": limit}
-    requests = [RequestDetail.model_validate(r) for r in await api.get("/requests", params=params)]
+    """GET /requests is a plain array, newest first, paged with limit/offset, without a date filter.
+
+    Pages are read until a short page or until rows are older than `since` (company-time date),
+    so monthly/yearly totals are not cut at the first page.
+    """
+    tz = company_tz()
+    requests: list[RequestDetail] = []
+    for page in range(max_pages):
+        params = {
+            "employeeId": employee_id,
+            "type": type.value if type else None,
+            "limit": page_size,
+            "offset": page * page_size,
+        }
+        rows = [RequestDetail.model_validate(r) for r in await api.get("/requests", params=params)]
+        requests.extend(rows)
+        if len(rows) < page_size or (since and rows and rows[-1].created_at.astimezone(tz).date() < since):
+            break
     if since:
-        requests = [r for r in requests if r.created_at.date() >= since]
+        requests = [r for r in requests if r.created_at.astimezone(tz).date() >= since]
     return requests
 
 

@@ -143,7 +143,9 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
         if shift is None:
             continue
         rest = new.start - shift.end if day < new.start.date() else shift.start - new.end
-        if timedelta(0) <= rest < timedelta(hours=settings.shift_min_rest_hours):
+        if rest < timedelta(0):  # e.g. the previous night shift still runs when the new one starts
+            reasons.append(f"Ca mới chồng lên ca ngày {day:%d/%m} ({shift.start:%H:%M}–{shift.end:%H:%M})")
+        elif rest < timedelta(hours=settings.shift_min_rest_hours):
             reasons.append(f"Chỉ nghỉ {_hours(rest):g} giờ giữa hai ca, cần tối thiểu {settings.shift_min_rest_hours:g} giờ")
 
     registered = (ctx.request.submitted_at or ctx.request.created_at).astimezone(company_tz())

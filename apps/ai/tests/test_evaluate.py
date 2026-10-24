@@ -212,3 +212,40 @@ async def test_fails_closed_when_inbound_token_not_configured(client: httpx.Asyn
     app.dependency_overrides[get_settings] = lambda: replace(get_settings(), ai_inbound_token="")
     response = await evaluate(client)
     assert response.status_code == 503
+
+
+# ---- fail safe for unexpected errors (review findings) ----
+async def test_unexpected_error_while_preparing_escalates(client: httpx.AsyncClient, store: MockStore) -> None:
+    store.requests["req-demo-1"] |= {
+        "type": "SHIFT_CHANGE",
+        "payload": {"shiftDate": "2026-10-23", "newShiftTemplateId": "tpl-afternoon", "reason": "x"},
+    }
+    store.shift_templates[2]["startTime"] = "14:00:00"  # strptime("%H:%M") raises ValueError
+    response = await evaluate(client)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "ESCALATE" and "(ValueError)" in body["reasons"][0]
+    assert store.requests["req-demo-1"]["status"] == "ESCALATED"
+
+
+async def test_unexpected_llm_client_error_escalates(client: httpx.AsyncClient, store: MockStore, llm: FakeLLM) -> None:
+    def broken(system: str, user: str) -> LLMAssessment:
+        raise RuntimeError("bug in a client")
+
+    llm.responses = [broken]
+    body = (await evaluate(client)).json()
+    assert body["action"] == "ESCALATE" and "lỗi kỹ thuật" in body["reasons"][0]
+
+
+async def test_unconfigured_llm_escalates_every_request(client: httpx.AsyncClient, store: MockStore, api: ApiClient) -> None:
+    from app.llm import UnavailableLLM
+
+    settings = replace(get_settings(), ai_inbound_token=TOKEN)
+
+    async def deps() -> AsyncIterator[EvaluationDeps]:
+        yield EvaluationDeps(api=api, llm=UnavailableLLM("GEMINI_API_KEY is not set"), settings=settings, today=date(2026, 10, 19))
+
+    app.dependency_overrides[get_evaluation_deps] = deps
+    body = (await evaluate(client)).json()
+    assert body["action"] == "ESCALATE"
+    assert "GEMINI_API_KEY is not set" in store.writes[-1]["body"]["trace"]["toolCalls"][-1]["error"]

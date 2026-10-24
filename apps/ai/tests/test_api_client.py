@@ -151,3 +151,25 @@ async def test_escalate(api: ApiClient, store: MockStore) -> None:
     result = await escalate_to_human(api, "req-demo-1", body)
     assert result.status is RequestStatus.ESCALATED
     assert store.requests["req-demo-1"]["status"] == "ESCALATED"
+
+
+# ---- paging and dates (review findings) ----
+def _leave(i: int, created: str) -> dict:
+    return {
+        "id": f"bulk-{i}", "type": "LEAVE", "status": "APPROVED", "employeeId": "emp-001",
+        "payload": {"leaveTypeId": "lt-annual", "startDate": "2026-03-02", "endDate": "2026-03-02", "reason": "x"},
+        "computed": {"daysRequested": 1}, "attachments": [], "createdAt": created, "updatedAt": created,
+    }
+
+
+async def test_list_requests_reads_every_page(api: ApiClient, store: MockStore) -> None:
+    for i in range(230):
+        store.add_request(_leave(i, f"2026-0{1 + i % 9}-1{i % 10}T03:00:00Z"))
+    assert len(await list_requests(api, "emp-001", type=RequestType.LEAVE)) == 231  # + the demo request
+    assert len(api.calls) == 3  # 100 + 100 + 31
+
+
+async def test_since_uses_the_company_date(api: ApiClient, store: MockStore) -> None:
+    store.add_request(_leave(1, "2026-07-26T20:00:00Z"))  # 27/07 03:00 in Vietnam
+    ids = [r.id for r in await list_requests(api, "emp-001", since=date(2026, 7, 27))]
+    assert "bulk-1" in ids

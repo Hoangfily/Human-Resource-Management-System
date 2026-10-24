@@ -7,6 +7,8 @@ past requests, attachment count instead of URLs.
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from pydantic import ValidationError
+
 from ..guardrails.pii import mask_for_llm, redact_text
 from ..guardrails.untrusted import detect_injection, wrap_untrusted
 from ..prompts import load_prompt
@@ -93,7 +95,10 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
         employee["monthsSinceJoin"] = (ctx.today - ctx.employee.join_date).days // 30
     history = []
     for past in ctx.history:  # Metadata only: past reasons are neither needed nor trusted
-        past_payload = past.leave_payload()
+        try:
+            past_payload = past.leave_payload()
+        except ValidationError:
+            continue  # A malformed old request must not block today's decision
         history.append(
             {
                 "leaveType": ctx.leave_type_code(past_payload),

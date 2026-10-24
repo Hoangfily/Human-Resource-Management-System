@@ -1,4 +1,5 @@
 from ..config import Settings
+from ..schemas.decision import LLMAssessment
 from .base import LLMClient, LLMError
 
 
@@ -19,4 +20,26 @@ def get_llm(settings: Settings) -> LLMClient:
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider}")
 
 
-__all__ = ["LLMClient", "LLMError", "get_llm"]
+class UnavailableLLM:
+    """Stand-in when the configured LLM cannot be built (missing key, unknown provider).
+
+    Every assess() fails with LLMError, so each request is escalated with the cause in its
+    trace instead of /evaluate answering 500 and leaving requests PENDING.
+    """
+
+    def __init__(self, cause: str) -> None:
+        self.cause = cause
+        self.model = self.last_model = "unavailable"
+
+    async def assess(self, system: str, user: str) -> LLMAssessment:
+        raise LLMError(f"LLM is not configured: {self.cause}")
+
+
+def get_llm_or_unavailable(settings: Settings) -> LLMClient:
+    try:
+        return get_llm(settings)
+    except (LLMError, ValueError) as exc:
+        return UnavailableLLM(str(exc))
+
+
+__all__ = ["LLMClient", "LLMError", "UnavailableLLM", "get_llm", "get_llm_or_unavailable"]

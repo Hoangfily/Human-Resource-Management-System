@@ -156,3 +156,13 @@ def test_load_prompt_requires_version_header(tmp_path, monkeypatch) -> None:
             load_prompt("broken")
     finally:
         load_prompt.cache_clear()
+
+
+async def test_malformed_old_request_is_skipped_not_fatal(api: ApiClient, store: MockStore) -> None:
+    bad = leave_request("broken", start="2026-09-07", end="2026-09-07")
+    del bad["payload"]["startDate"]
+    store.add_request(bad)
+    store.add_request(leave_request("ok", start="2026-09-14", end="2026-09-14"))
+    ctx, built = await prompt_for(api)
+    assert {r.id for r in ctx.history} == {"broken", "ok"}
+    assert "2026-09-14 (Thứ 2)" in built.user  # The good one is still shown

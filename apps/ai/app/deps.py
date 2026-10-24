@@ -7,13 +7,13 @@ from fastapi import Header
 
 from .agents.supervisor import EvaluationDeps
 from .config import get_settings
-from .llm import LLMClient, get_llm
+from .llm import LLMClient, get_llm_or_unavailable
 from .tools.base import ApiClient
 
 
 @lru_cache
 def _llm() -> LLMClient:
-    return get_llm(get_settings())
+    return get_llm_or_unavailable(get_settings())
 
 
 async def get_evaluation_deps(

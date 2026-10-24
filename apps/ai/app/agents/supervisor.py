@@ -5,6 +5,7 @@ get_request -> skip if not PENDING -> gather context + prompt -> LLM -> guardrai
 Fail safe: any failure after the request is loaded ends in an escalation, never a guess.
 """
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ from .base import BuiltPrompt
 from .leave_agent import build_leave_prompt, gather_leave_context
 from .overtime_agent import build_overtime_prompt, gather_overtime_context
 from .shift_agent import build_shift_prompt, gather_shift_context
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,11 +72,15 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
     if agent is None:
         return await run.escalate([f"Loại đơn {request.type} chưa được AI hỗ trợ"])
 
+    # From here on the request is known: every failure must end in an escalation, never a 500
+    # that leaves it PENDING with nobody assigned (unexpected data shapes, bad template times...).
     try:
         ctx = await agent.gather(deps.api, request, deps.today)
         built = agent.build(ctx, deps.settings)
         autonomy = await get_autonomy_config(deps.api, request.type)
-    except (ApiError, ValidationError) as exc:
+    except Exception as exc:
+        if not isinstance(exc, (ApiError, ValidationError)):
+            logger.exception("Unexpected error while preparing request %s", request.id)
         return await run.escalate([f"Không lấy đủ dữ liệu để đánh giá ({_short(exc)})"])
     run.prompt_version = built.prompt_version
     run.policy_version = built.policies.version
@@ -82,7 +89,9 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
     started = time.perf_counter()
     try:
         assessment = await deps.llm.assess(built.system, built.user)
-    except LLMError as exc:
+    except Exception as exc:  # LLMError, or a bug in an LLM client
+        if not isinstance(exc, LLMError):
+            logger.exception("Unexpected LLM client error for request %s", request.id)
         run.record_llm(started, error=str(exc))
         return await run.escalate(["AI không đánh giá được do lỗi kỹ thuật, cần người duyệt"])
     run.record_llm(started)
