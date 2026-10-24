@@ -46,7 +46,11 @@ class OvertimeContext:
 async def gather_overtime_context(api: ApiClient, request: RequestDetail, today: date) -> OvertimeContext:
     payload = request.overtime_payload()
     employee = await get_employee(api, request.employee_id)
-    schedules = await get_schedules(api, request.employee_id, payload.date, payload.date)
+    # ±1 day: apps/api stores the schedule date at server-local midnight but filters in UTC, so a
+    # one-day query can miss the row. The exact day is picked below on ScheduleEntry.date.
+    schedules = await get_schedules(
+        api, request.employee_id, payload.date - timedelta(days=1), payload.date + timedelta(days=1)
+    )
     # Rows are fetched by creation date but counted by OT date: start early enough to catch OT
     # registered in advance (e.g. created in December for January days).
     since = min(date(payload.date.year, 1, 1) - timedelta(days=ADVANCE_DAYS), today - timedelta(days=HISTORY_DAYS))

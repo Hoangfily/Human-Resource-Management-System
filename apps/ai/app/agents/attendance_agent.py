@@ -58,7 +58,11 @@ class AttendanceContext:
 async def gather_attendance_context(api: ApiClient, request: RequestDetail, today: date) -> AttendanceContext:
     payload = request.attendance_payload()
     employee = await get_employee(api, request.employee_id)
-    schedules = await get_schedules(api, request.employee_id, payload.date, payload.date)
+    # ±1 day: apps/api stores the schedule date at server-local midnight but filters in UTC, so a
+    # one-day query can miss the row. The exact day is picked below on ScheduleEntry.date.
+    schedules = await get_schedules(
+        api, request.employee_id, payload.date - timedelta(days=1), payload.date + timedelta(days=1)
+    )
     # One day either side: events are stored in UTC, the day boundary is in company time.
     events = await get_attendance_events(
         api, request.employee_id, payload.date - timedelta(days=1), payload.date + timedelta(days=1)
@@ -98,12 +102,17 @@ def impact_minutes(ctx: AttendanceContext) -> tuple[int | None, list[str]]:
     if p.issue == "MISSING_CLOCK_IN":
         if ins:
             problems.append(f"Đơn báo thiếu giờ vào nhưng đã có giờ vào lúc {ins[0]:%H:%M}")
+        if not outs:
+            # Otherwise two 0-minute explanations (in + out) turn an absent day into a full workday.
+            problems.append("Ngày này không có giờ ra nào, không đủ căn cứ là đã đi làm")
         if requested is None:
             problems.append("Đơn không ghi giờ vào cần ghi nhận")
         return (_minutes(requested - window.start) if requested else None), problems
     if p.issue == "MISSING_CLOCK_OUT":
         if outs:
             problems.append(f"Đơn báo thiếu giờ ra nhưng đã có giờ ra lúc {outs[-1]:%H:%M}")
+        if not ins:
+            problems.append("Ngày này không có giờ vào nào, không đủ căn cứ là đã đi làm")
         if requested is None:
             problems.append("Đơn không ghi giờ ra cần ghi nhận")
         return (_minutes(requested - window.end) if requested else None), problems

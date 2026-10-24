@@ -100,7 +100,10 @@ async def gather_shift_context(api: ApiClient, request: RequestDetail, today: da
 
     department = None
     if base_date and employee.department_id:
-        department = await get_department_schedules(api, employee.department_id, base_date, base_date)
+        # ±1 day for the same date-storage reason; rows are counted by overlap with the old shift.
+        department = await get_department_schedules(
+            api, employee.department_id, base_date - timedelta(days=1), base_date + timedelta(days=1)
+        )
 
     history = (await list_requests(api, request.employee_id, type=RequestType.SHIFT_CHANGE, since=today - timedelta(days=HISTORY_DAYS))).without(request.id)
     policies = await get_policies(api)
@@ -133,6 +136,19 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
     other = ctx.schedule_on(new.start.date())
     if other and other.overlaps(new.start, new.end):
         reasons.append(f"Ca mới trùng với ca khác đã phân ngày {new.start:%d/%m}")
+    elif other:
+        # Back-to-back shifts on the same day: the neighbour-day checks below never see this one.
+        tz = company_tz()
+        o_start, o_end = other.shift_start.astimezone(tz), other.shift_end.astimezone(tz)
+        rest = new.start - o_end if o_end <= new.start else o_start - new.end
+        if rest < timedelta(hours=settings.shift_min_rest_hours):
+            reasons.append(
+                f"Chỉ nghỉ {_hours(rest):g} giờ với ca khác cùng ngày ({o_start:%H:%M}–{o_end:%H:%M}), "
+                f"cần tối thiểu {settings.shift_min_rest_hours:g} giờ"
+            )
+        total = new.hours() + _hours(o_end - o_start)
+        if total > settings.ot_max_total_hours_per_day:
+            reasons.append(f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ")
 
     for day in (new.start.date() - timedelta(days=1), new.start.date() + timedelta(days=1)):
         shift = ctx.neighbour(day)

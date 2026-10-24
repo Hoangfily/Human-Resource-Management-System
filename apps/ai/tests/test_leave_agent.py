@@ -268,3 +268,22 @@ def test_half_day_must_be_a_single_day() -> None:
     for dates in ({"startDate": "2026-10-26", "endDate": "2026-10-30"}, {"startDate": "2026-10-30", "endDate": "2026-10-29"}):
         with pytest.raises(ValidationError):
             LeavePayload.model_validate({**base, **dates})
+
+
+async def test_next_year_leave_counts_fully_against_next_year_balance(api: ApiClient, store: MockStore) -> None:
+    # apps/api reserved these 2 days in the 2026 row (year hard-coded), not in 2027.
+    store.balances["emp-001"].append(
+        {"leaveTypeId": "lt-annual", "leaveTypeCode": "ANNUAL", "year": 2027, "totalDays": 1, "usedDays": 0,
+         "pendingDays": 0, "availableDays": 1}
+    )
+    demo_payload(store).update({"startDate": "2027-01-05", "endDate": "2027-01-06"})
+    assert "Vượt quỹ phép ANNUAL: thiếu 1 ngày" in await limits_for(api)
+
+
+async def test_leave_type_added_by_hr_is_unknown(api: ApiClient, store: MockStore) -> None:
+    store.balances["emp-001"].append(
+        {"leaveTypeId": "lt-wed", "leaveTypeCode": "WEDDING", "year": 2026, "totalDays": 0, "usedDays": 0,
+         "pendingDays": 0, "availableDays": 0}
+    )
+    demo_payload(store).update({"leaveTypeId": "lt-wed", "leaveType": "WEDDING"})
+    assert "Không xác định được loại nghỉ" in await limits_for(api)

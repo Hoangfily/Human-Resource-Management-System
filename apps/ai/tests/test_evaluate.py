@@ -16,7 +16,7 @@ from app.main import app
 from app.mock_api.fixtures import MockStore
 from app.schemas.common import RequestType
 from app.schemas.decision import LLMAssessment
-from app.tools.base import ApiClient
+from app.tools.base import ApiClient, ApiError
 
 pytestmark = pytest.mark.anyio
 
@@ -300,3 +300,24 @@ async def test_unreadable_request_is_escalated_by_id(client: httpx.AsyncClient, 
 async def test_non_ascii_token_is_401_not_500(client: httpx.AsyncClient) -> None:
     response = await client.post("/evaluate", json={"requestId": "req-demo-1"}, headers={"X-Service-Token": b"t\xe9st"})  # raw byte 0xE9, decoded by Starlette as latin-1
     assert response.status_code == 401
+
+
+async def test_uncertain_write_reports_the_current_status(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def landed_then_timed_out(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "APPROVED"  # The API applied it...
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # ...but the answer was lost
+
+    monkeypatch.setattr(api, "post", landed_then_timed_out)
+    body = (await evaluate(client)).json()
+    assert body["status"] == "APPROVED" and "applied" not in body
+    assert "có thể do chính lần ghi này" in body["reasons"][-1]
+
+
+async def test_logs_never_contain_request_data(client: httpx.AsyncClient, store: MockStore, caplog) -> None:
+    store.requests["req-demo-1"]["type"] = "gọi em 0912345678"  # Invalid, and personal data in the value
+    with caplog.at_level("ERROR"):
+        await evaluate(client)
+    assert "ValidationError on type" in caplog.text
+    assert "0912345678" not in caplog.text

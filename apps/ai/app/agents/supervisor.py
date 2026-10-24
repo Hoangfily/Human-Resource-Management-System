@@ -63,7 +63,7 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
     except ApiError:
         raise
     except Exception as exc:  # The API answered, but with a request we cannot read
-        logger.exception("Unreadable request %s", request_id)
+        _log_failure("Unreadable request %s", request_id, exc)
         return await _escalate_unreadable(deps, request_id, exc)
     if request.status is not RequestStatus.PENDING:
         return EvaluateResponse(
@@ -86,7 +86,7 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
         autonomy = await get_autonomy_config(deps.api, request.type)
     except Exception as exc:
         if not isinstance(exc, (ApiError, ValidationError)):
-            logger.exception("Unexpected error while preparing request %s", request.id)
+            _log_failure("Unexpected error while preparing request %s", request.id, exc)
         return await run.escalate([f"Không lấy đủ dữ liệu để đánh giá ({_short(exc)})"])
     run.prompt_version = built.prompt_version
     run.policy_version = built.policies.version
@@ -101,7 +101,7 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
         if isinstance(exc, LLMError):
             error = str(exc)
         else:
-            logger.exception("Unexpected LLM client error for request %s", request.id)
+            _log_failure("Unexpected LLM client error for request %s", request.id, exc)
             error = type(exc).__name__
         run.record_llm(started, error=error)
         return await run.escalate(["AI không đánh giá được do lỗi kỹ thuật, cần người duyệt"])
@@ -120,7 +120,7 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
             limit_reasons=built.limit_reasons,
         )
     except Exception as exc:
-        logger.exception("Unexpected guardrail error for request %s", request.id)
+        _log_failure("Unexpected guardrail error for request %s", request.id, exc)
         return await run.escalate([f"Lỗi khi kiểm tra điều kiện tự quyết ({type(exc).__name__})"])
     if guard.action is FinalAction.ESCALATE:
         return await run.escalate(guard.reasons)
@@ -196,11 +196,39 @@ class _Run:
         )
         return await self._write(action, [], decide_request(self.deps.api, self.request.id, body))
 
+    async def _after_uncertain_write(self, action: FinalAction, reasons: list[str], exc: ApiError) -> EvaluateResponse:
+        target = {
+            FinalAction.APPROVE: RequestStatus.APPROVED,
+            FinalAction.REJECT: RequestStatus.REJECTED,
+            FinalAction.ESCALATE: RequestStatus.ESCALATED,
+        }[action]
+        try:
+            now = (await get_request(self.deps.api, self.request.id)).status
+        except Exception:
+            now = None
+        if now is target:
+            note = f"Đơn đã ở trạng thái {now} (có thể do chính lần ghi này), cần kiểm tra lại"
+            applied = None  # Cannot tell whether it was us or a person
+        else:
+            note = f"API không nhận kết quả: {exc.code}" + (f", đơn đang ở trạng thái {now}" if now else "")
+            applied = False
+        return EvaluateResponse(
+            request_id=self.request.id,
+            action=action,
+            status=now,
+            applied=applied,
+            reasons=[*reasons, note],
+            assessment=self.assessment,
+        )
+
     async def _write(self, action: FinalAction, reasons: list[str], call: Any) -> EvaluateResponse:
         try:
             result: DecisionResult = await call
         except ApiError as exc:
-            # E.g. the request was cancelled meanwhile (409). Nothing was applied.
+            if exc.code == "WRITE_OUTCOME_UNKNOWN" or exc.status in (400, 409):
+                # The write may have landed (timeout) or the request moved on (cancelled, decided by
+                # a manager, or by our own earlier attempt). Report what the request looks like now.
+                return await self._after_uncertain_write(action, reasons, exc)
             return EvaluateResponse(
                 request_id=self.request.id,
                 action=action,
@@ -210,7 +238,7 @@ class _Run:
             )
         except Exception as exc:
             # The API answered something unreadable: whether the write happened is unknown.
-            logger.exception("Unreadable API answer while writing request %s", self.request.id)
+            _log_failure("Unreadable API answer while writing request %s", self.request.id, exc)
             return EvaluateResponse(
                 request_id=self.request.id,
                 action=action,
@@ -236,12 +264,25 @@ async def _escalate_unreadable(deps: EvaluationDeps, request_id: str, exc: Excep
     body = EscalateInput(reason=reason, risk_level=RiskLevel.MEDIUM, idempotency_key=f"ai-eval:{request_id}:unreadable")
     try:
         result = await escalate_to_human(deps.api, request_id, body)
-    except Exception:
-        logger.exception("Could not escalate unreadable request %s", request_id)
+    except Exception as escalate_error:
+        _log_failure("Could not escalate unreadable request %s", request_id, escalate_error)
         return EvaluateResponse(request_id=request_id, action=FinalAction.ESCALATE, applied=False, reasons=[reason])
     return EvaluateResponse(
         request_id=request_id, action=FinalAction.ESCALATE, status=result.status, applied=result.applied, reasons=[reason]
     )
+
+
+def _log_failure(message: str, request_id: str, exc: Exception) -> None:
+    """Log what failed without the data: pydantic messages embed input values (free-text reasons,
+    phone numbers...), and other exception texts may echo the prompt or the payload."""
+    if isinstance(exc, ValidationError):
+        fields = ", ".join(".".join(str(part) for part in e["loc"]) or "<root>" for e in exc.errors(include_input=False))
+        detail = f"ValidationError on {fields}"
+    elif isinstance(exc, ApiError):
+        detail = f"ApiError {exc.status} {exc.code}"
+    else:
+        detail = type(exc).__name__
+    logger.error(message + " (%s)", request_id, detail)
 
 
 def _short(exc: Exception) -> str:

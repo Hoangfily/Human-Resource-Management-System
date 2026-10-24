@@ -48,9 +48,9 @@ class LeaveContext:
 
     def leave_type_code(self, payload: LeavePayload) -> str:
         balance = self._balance_for(payload)
-        if balance:
-            return balance.leave_type_code
-        return payload.leave_type if payload.leave_type in KNOWN_LEAVE_TYPES else "UNKNOWN"
+        code = balance.leave_type_code if balance else payload.leave_type
+        # A type HR added later (e.g. WEDDING) has no rules here yet: UNKNOWN makes it escalate.
+        return code if code in KNOWN_LEAVE_TYPES else "UNKNOWN"
 
     def balance(self) -> LeaveBalance | None:
         return self._balance_for(self.payload)
@@ -143,8 +143,11 @@ def check_limits(ctx: LeaveContext, settings: Settings) -> list[str]:
             reasons.append(f"Không có quỹ phép {code} năm {p.start_date.year} để đối chiếu")
         else:
             # apps/api already reserved this request in pendingDays (using the client's count) and
-            # clamps availableDays at 0: use the raw fields and add what it under-reserved.
-            remaining = balance.total_days - balance.used_days - balance.pending_days - max(0.0, days - reserved_days(ctx))
+            # clamps availableDays at 0: use the raw fields and add what it under-reserved. It only
+            # reserves into the current year's row (year hard-coded), so for another year's balance
+            # nothing of this request is in pendingDays yet.
+            reserved_here = reserved_days(ctx) if balance.year == ctx.today.year else 0.0
+            remaining = balance.total_days - balance.used_days - balance.pending_days - max(0.0, days - reserved_here)
             if remaining < 0:
                 reasons.append(f"Vượt quỹ phép {code}: thiếu {-remaining:g} ngày")
 

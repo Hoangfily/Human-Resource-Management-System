@@ -122,3 +122,12 @@ async def test_new_shift_overlapping_previous_night_shift_is_flagged(api: ApiCli
     with_team(store, FRI, "emp-201", "emp-202")
     reasons = check_limits(await context(api), SETTINGS)
     assert any("Ca mới chồng lên ca ngày 22/10 (22:00–06:00)" in r for r in reasons), reasons
+
+
+async def test_back_to_back_shift_on_the_same_new_day(api: ApiClient, store: MockStore) -> None:
+    row(store, "emp-001", FRI, f"{THU}T23:00:00.000Z", f"{FRI}T07:00:00.000Z")  # Fri 06:00-14:00 already assigned
+    store.add_request(shift_request("s1", {"shiftDate": THU, "newDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, THU, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert any("Chỉ nghỉ 0 giờ với ca khác cùng ngày (06:00–14:00)" in r for r in reasons), reasons
+    assert any("Tổng giờ làm trong ngày 16 giờ" in r for r in reasons)
