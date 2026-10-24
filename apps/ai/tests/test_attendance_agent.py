@@ -168,3 +168,18 @@ async def test_prompt_marks_missing_attendance_data(api: ApiClient, store: MockS
     built = build_attendance_prompt(await context(api), SETTINGS)
     assert "## Clock events on that day (null = not available)\nnull" in built.user
     assert built.limit_reasons == ["Không đọc được dữ liệu chấm công gốc để đối chiếu"]
+
+
+async def test_explaining_a_future_day_or_an_unfinished_shift(api: ApiClient, store: MockStore) -> None:
+    store.add_request(att_request("a1", {"date": "2026-10-20", "issue": "MISSING_CLOCK_OUT", "requestedTime": "17:30"}))
+    assert "Giải trình cho ngày chưa tới" in check_limits(await context(api), SETTINGS)
+    store.add_request(att_request("a2", {"date": "2026-10-19", "issue": "MISSING_CLOCK_OUT", "requestedTime": "17:30"}))
+    assert "Giải trình khi ca làm chưa kết thúc" in check_limits(await context(api, "a2"), SETTINGS)  # Filed 09:00
+
+
+async def test_unreadable_old_explanations_escalate(api: ApiClient, store: MockStore) -> None:
+    store.add_request(att_request("a1", {"date": FRI, "issue": "MISSING_CLOCK_OUT", "requestedTime": "17:35"}))
+    add_events(store, ("CLOCK_IN", "2026-10-16T01:25:00Z"))
+    bad = att_request("old", {"date": "2026-10-07", "issue": "NOT_AN_ISSUE"}, status="APPROVED", createdAt="2026-10-07T03:00:00Z")
+    store.add_request(bad)
+    assert "Có 1 đơn giải trình cũ không đọc được, không đếm đủ số đơn trong tháng" in check_limits(await context(api), SETTINGS)

@@ -74,7 +74,7 @@ async def test_low_risk_leave_is_auto_approved(client: httpx.AsyncClient, store:
     assert sent["reason"] == "Đơn nghỉ của bạn đã được duyệt."  # employee_message, not the rationale
     assert sent["idempotencyKey"].startswith("ai-eval:req-demo-1:")
     trace = sent["trace"]
-    assert trace["promptVersion"] == "leave_decision@1" and trace["policyVersion"] == "2026.10-draft"
+    assert trace["promptVersion"] == "leave_decision@2" and trace["policyVersion"] == "2026.10-draft"
     assert trace["model"] == "fake-llm" and trace["rationale"] == "Lý do hợp lý, đủ phép"
     paths = [c.get("path") or c.get("tool") for c in trace["toolCalls"]]
     assert paths[0] == "/requests/req-demo-1" and paths[-1] == "llm.assess"
@@ -295,3 +295,8 @@ async def test_unreadable_request_is_escalated_by_id(client: httpx.AsyncClient, 
     body = response.json()
     assert body["action"] == "ESCALATE" and "không đọc được dữ liệu đơn (ValidationError)" in body["reasons"][0]
     assert store.requests["req-demo-1"]["status"] == "ESCALATED" and llm.prompts == []
+
+
+async def test_non_ascii_token_is_401_not_500(client: httpx.AsyncClient) -> None:
+    response = await client.post("/evaluate", json={"requestId": "req-demo-1"}, headers={"X-Service-Token": b"t\xe9st"})  # raw byte 0xE9, decoded by Starlette as latin-1
+    assert response.status_code == 401

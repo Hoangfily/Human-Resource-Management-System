@@ -42,9 +42,13 @@ class LeavePayload(ApiModel):
     reason: str
 
     @model_validator(mode="after")
-    def _needs_leave_type(self) -> "LeavePayload":
+    def _consistent(self) -> "LeavePayload":
         if not (self.leave_type_id or self.leave_type):
             raise ValueError("leaveTypeId or leaveType is required")
+        if self.end_date < self.start_date:
+            raise ValueError("endDate must not be before startDate")
+        if self.half_day and self.end_date != self.start_date:
+            raise ValueError("halfDay is only allowed for a single day")  # Else a week passes as 0.5 day
         return self
 
 

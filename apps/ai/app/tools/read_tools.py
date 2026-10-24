@@ -36,6 +36,17 @@ async def get_leave_balance(api: ApiClient, employee_id: str) -> list[LeaveBalan
     return [LeaveBalance.model_validate(b) for b in body["balances"]]
 
 
+class RequestHistory(list[RequestDetail]):
+    """Requests read from the API, plus how many rows could not be parsed (totals may be low)."""
+
+    def __init__(self, rows: list[RequestDetail] | None = None, skipped: int = 0) -> None:
+        super().__init__(rows or [])
+        self.skipped = skipped
+
+    def without(self, request_id: str) -> "RequestHistory":
+        return RequestHistory([r for r in self if r.id != request_id], self.skipped)
+
+
 async def list_requests(
     api: ApiClient,
     employee_id: str,
@@ -44,7 +55,7 @@ async def list_requests(
     since: date | None = None,
     page_size: int = 100,
     max_pages: int = 20,
-) -> list[RequestDetail]:
+) -> RequestHistory:
     """GET /requests is a plain array, newest first, paged with limit/offset, without a date filter.
 
     Pages are read until a short page or until rows are older than `since` (company-time date),
@@ -55,6 +66,7 @@ async def list_requests(
     """
     tz = company_tz()
     by_id: dict[str, RequestDetail] = {}
+    skipped = 0
     for page in range(max_pages):
         params = {
             "employeeId": employee_id,
@@ -68,6 +80,7 @@ async def list_requests(
             try:
                 rows.append(RequestDetail.model_validate(item))
             except ValidationError:  # One odd old row must not block every future decision
+                skipped += 1
                 logger.warning("Skipping unreadable request row %s", item.get("id") if isinstance(item, dict) else "?")
         for row in rows:
             if row.employee_id == employee_id and (type is None or row.type == type):
@@ -79,7 +92,7 @@ async def list_requests(
     requests = list(by_id.values())
     if since:
         requests = [r for r in requests if r.created_at.astimezone(tz).date() >= since]
-    return requests
+    return RequestHistory(requests, skipped)
 
 
 async def get_schedules(api: ApiClient, employee_id: str, start: date, end: date) -> list[ScheduleEntry]:

@@ -160,3 +160,12 @@ async def test_other_ot_on_the_same_day_counts_and_must_not_overlap(api: ApiClie
     reasons = check_limits(await context(api, store), SETTINGS)
     assert "Trùng giờ với đơn OT khác cùng ngày (18:00–20:00)" in reasons
     assert any("Tổng giờ làm trong ngày 15 giờ" in r for r in reasons)  # 9 + 2 + 4
+
+
+async def test_rows_the_api_returned_unparsed_also_escalate(api: ApiClient, store: MockStore, monkeypatch) -> None:
+    from app.tools.read_tools import RequestHistory
+
+    store.add_request(ot_request("ot-1", "2026-10-21", "18:00", "20:00"))
+    ctx = await context(api, store)
+    ctx = replace(ctx, history=RequestHistory(list(ctx.history), skipped=2))
+    assert "Có 2 đơn OT cũ không đọc được, tổng giờ tháng/năm có thể bị thiếu" in check_limits(ctx, SETTINGS)

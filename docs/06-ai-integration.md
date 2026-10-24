@@ -61,7 +61,7 @@ Chỉ caller có role `AI` được gọi.
   "trace": {
     "mode": "DECISION",
     "model": "gemini-3.5-flash",
-    "promptVersion": "leave_decision@1",
+    "promptVersion": "leave_decision@2",
     "policyVersion": "2026.10-draft",
     "toolCalls": [{ "method": "GET", "path": "/requests/<id>", "status": 200, "ms": 12 }],
     "policyRefs": ["LEAVE.NOTICE_DAYS"],

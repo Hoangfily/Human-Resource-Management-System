@@ -19,7 +19,7 @@ def require_service_token(
     """Only the HR API may call the AI service (fail closed if no token is configured)."""
     if not settings.ai_inbound_token:
         raise HTTPException(status_code=503, detail="AI_INBOUND_TOKEN is not configured")
-    if not hmac.compare_digest(x_service_token, settings.ai_inbound_token):
+    if not hmac.compare_digest(x_service_token.encode(), settings.ai_inbound_token.encode()):  # bytes: no TypeError on non-ASCII
         raise HTTPException(status_code=401, detail="Invalid service token")
 
 

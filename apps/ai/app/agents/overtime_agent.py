@@ -50,11 +50,7 @@ async def gather_overtime_context(api: ApiClient, request: RequestDetail, today:
     # Rows are fetched by creation date but counted by OT date: start early enough to catch OT
     # registered in advance (e.g. created in December for January days).
     since = min(date(payload.date.year, 1, 1) - timedelta(days=ADVANCE_DAYS), today - timedelta(days=HISTORY_DAYS))
-    history = [
-        r
-        for r in await list_requests(api, request.employee_id, type=RequestType.OVERTIME, since=since)
-        if r.id != request.id
-    ]
+    history = (await list_requests(api, request.employee_id, type=RequestType.OVERTIME, since=since)).without(request.id)
     policies = await get_policies(api)
     schedule = next((s for s in schedules if s.date == payload.date), None)
     return OvertimeContext(request, payload, employee, schedule, history, policies, today)
@@ -98,7 +94,7 @@ def same_day_overtime(ctx: OvertimeContext) -> list[OvertimePayload]:
 
 def unreadable_history(ctx: OvertimeContext) -> int:
     """Old OT requests that count toward the limits but cannot be read: totals may be too low."""
-    count = 0
+    count = getattr(ctx.history, "skipped", 0)  # Rows the API returned that did not even parse
     for past in ctx.history:
         if past.status not in COUNTED:
             continue

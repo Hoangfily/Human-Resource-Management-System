@@ -142,7 +142,7 @@ Chỉ AI service gọi (service token). API kiểm tra lại luật cứng, `Aut
   "trace": {
     "mode": "DECISION",
     "model": "gemini-3.5-flash",
-    "promptVersion": "leave_decision@1",
+    "promptVersion": "leave_decision@2",
     "policyVersion": "2026.10-draft",
     "toolCalls": [{ "method": "GET", "path": "/requests/<id>", "status": 200, "ms": 12 }, { "tool": "llm.assess", "model": "gemini-3.5-flash", "ms": 4100 }],
     "policyRefs": ["LEAVE.NOTICE_DAYS"],

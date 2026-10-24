@@ -102,11 +102,7 @@ async def gather_shift_context(api: ApiClient, request: RequestDetail, today: da
     if base_date and employee.department_id:
         department = await get_department_schedules(api, employee.department_id, base_date, base_date)
 
-    history = [
-        r
-        for r in await list_requests(api, request.employee_id, type=RequestType.SHIFT_CHANGE, since=today - timedelta(days=HISTORY_DAYS))
-        if r.id != request.id
-    ]
+    history = (await list_requests(api, request.employee_id, type=RequestType.SHIFT_CHANGE, since=today - timedelta(days=HISTORY_DAYS))).without(request.id)
     policies = await get_policies(api)
     template = next((t for t in templates if t.id == payload.new_shift_template_id), None)
     return ShiftContext(request, payload, employee, base_date, current, own, template, department, history, policies, today)

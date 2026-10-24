@@ -65,13 +65,10 @@ async def gather_attendance_context(api: ApiClient, request: RequestDetail, toda
     )
     if events is not None:
         events = [e for e in events if e.local().date() == payload.date]
-    history = [
-        r
-        for r in await list_requests(
-            api, request.employee_id, type=RequestType.ATTENDANCE_EXPLANATION, since=today - timedelta(days=HISTORY_DAYS)
-        )
-        if r.id != request.id
-    ]
+    since = today - timedelta(days=HISTORY_DAYS)
+    history = (
+        await list_requests(api, request.employee_id, type=RequestType.ATTENDANCE_EXPLANATION, since=since)
+    ).without(request.id)
     policies = await get_policies(api)
     schedule = next((s for s in schedules if s.date == payload.date), None)
     return AttendanceContext(request, payload, employee, schedule, events, history, policies, today)
@@ -134,18 +131,28 @@ def check_limits(ctx: AttendanceContext, settings: Settings) -> list[str]:
     p = ctx.payload
     reasons: list[str] = []
 
+    registered = (ctx.request.submitted_at or ctx.request.created_at).astimezone(company_tz())
+    shift = ctx.shift()
+    if p.date > registered.date():
+        reasons.append("Giải trình cho ngày chưa tới")
+    elif shift and registered < shift.end:
+        reasons.append("Giải trình khi ca làm chưa kết thúc")
+
     late_by = working_days_after(p.date, ctx.registered_on())
     if late_by > settings.att_explain_within_days:
         reasons.append(f"Giải trình sau {late_by} ngày làm việc, quá hạn {settings.att_explain_within_days} ngày")
 
     live = []
+    unreadable = getattr(ctx.history, "skipped", 0)
     for past in ctx.history:
         if past.status in NOT_COUNTED:
             continue
         try:
             live.append(past.attendance_payload())
         except ValidationError:
-            continue
+            unreadable += 1
+    if unreadable:
+        reasons.append(f"Có {unreadable} đơn giải trình cũ không đọc được, không đếm đủ số đơn trong tháng")
     if any(o.date == p.date and o.issue == p.issue for o in live):
         reasons.append("Đã có đơn giải trình khác cho cùng ngày và cùng lỗi")
     in_month = 1 + sum(1 for o in live if (o.date.year, o.date.month) == (p.date.year, p.date.month))
