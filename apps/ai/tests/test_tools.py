@@ -20,4 +20,4 @@ def test_health_reports_unavailable_llm(monkeypatch: pytest.MonkeyPatch) -> None
     body = TestClient(app).get("/health").json()
 
     assert (body["status"], body["llm"]) == ("degraded", "unavailable")
-    assert "GEMINI_API_KEY" in body["detail"]
+    assert "detail" not in body  # The cause stays in the log (route is unauthenticated)

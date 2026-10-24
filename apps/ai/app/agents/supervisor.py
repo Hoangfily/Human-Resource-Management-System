@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from ..config import Settings
 from ..guardrails.policy import apply_autonomy, escalation_risk
 from ..llm import LLMClient, LLMError
-from ..schemas.common import FinalAction, RequestStatus, RequestType
+from ..schemas.common import FinalAction, RequestStatus, RequestType, RiskLevel
 from ..schemas.decision import AiDecisionInput, DecisionResult, EscalateInput, EvaluateResponse, LLMAssessment, Trace
 from ..schemas.requests import RequestDetail
 from ..tools.base import ApiClient, ApiError
@@ -49,7 +49,7 @@ class TypeAgent:
 
 
 AGENTS: dict[RequestType, TypeAgent] = {
-    RequestType.LEAVE: TypeAgent(gather_leave_context, lambda ctx, _settings: build_leave_prompt(ctx)),
+    RequestType.LEAVE: TypeAgent(gather_leave_context, build_leave_prompt),
     RequestType.OVERTIME: TypeAgent(gather_overtime_context, build_overtime_prompt),
     RequestType.ATTENDANCE_EXPLANATION: TypeAgent(gather_attendance_context, build_attendance_prompt),
     RequestType.SHIFT_CHANGE: TypeAgent(gather_shift_context, build_shift_prompt),
@@ -58,7 +58,13 @@ AGENTS: dict[RequestType, TypeAgent] = {
 
 async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateResponse:
     """Raises ApiError only when the request itself cannot be loaded."""
-    request = await get_request(deps.api, request_id)
+    try:
+        request = await get_request(deps.api, request_id)
+    except ApiError:
+        raise
+    except Exception as exc:  # The API answered, but with a request we cannot read
+        logger.exception("Unreadable request %s", request_id)
+        return await _escalate_unreadable(deps, request_id, exc)
     if request.status is not RequestStatus.PENDING:
         return EvaluateResponse(
             request_id=request.id,
@@ -222,6 +228,20 @@ class _Run:
             reasons=reasons,
             assessment=self.assessment,
         )
+
+
+async def _escalate_unreadable(deps: EvaluationDeps, request_id: str, exc: Exception) -> EvaluateResponse:
+    """Hand a request we cannot parse to a human by id, without context or trace."""
+    reason = f"AI không đọc được dữ liệu đơn ({type(exc).__name__}), cần người duyệt"
+    body = EscalateInput(reason=reason, risk_level=RiskLevel.MEDIUM, idempotency_key=f"ai-eval:{request_id}:unreadable")
+    try:
+        result = await escalate_to_human(deps.api, request_id, body)
+    except Exception:
+        logger.exception("Could not escalate unreadable request %s", request_id)
+        return EvaluateResponse(request_id=request_id, action=FinalAction.ESCALATE, applied=False, reasons=[reason])
+    return EvaluateResponse(
+        request_id=request_id, action=FinalAction.ESCALATE, status=result.status, applied=result.applied, reasons=[reason]
+    )
 
 
 def _short(exc: Exception) -> str:

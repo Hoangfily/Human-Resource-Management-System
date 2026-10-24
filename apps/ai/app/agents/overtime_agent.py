@@ -81,6 +81,21 @@ def counted_hours(ctx: OvertimeContext) -> tuple[float, float]:
     return month, year
 
 
+def same_day_overtime(ctx: OvertimeContext) -> list[OvertimePayload]:
+    """Other OT on the same date that already counts (pending, escalated or approved)."""
+    found = []
+    for past in ctx.history:
+        if past.status not in COUNTED:
+            continue
+        try:
+            p = past.overtime_payload()
+        except ValidationError:
+            continue
+        if p.date == ctx.payload.date:
+            found.append(p)
+    return found
+
+
 def unreadable_history(ctx: OvertimeContext) -> int:
     """Old OT requests that count toward the limits but cannot be read: totals may be too low."""
     count = 0
@@ -106,15 +121,16 @@ def check_limits(ctx: OvertimeContext, settings: Settings) -> list[str]:
     if registered >= payload.start():
         reasons.append("Đăng ký sau giờ bắt đầu làm thêm (OT hồi tố)")
 
+    same_day = same_day_overtime(ctx)
+    for other in same_day:
+        if payload.start() < other.end() and payload.end() > other.start():
+            reasons.append(f"Trùng giờ với đơn OT khác cùng ngày ({other.start_time}–{other.end_time})")
     window = shift_window(ctx)
-    if window:
-        if payload.start() < window.end and payload.end() > window.start:
-            reasons.append(f"Giờ OT trùng với ca làm ({window.start:%H:%M}–{window.end:%H:%M})")
-        total = window.hours() + hours
-        if total > settings.ot_max_total_hours_per_day:
-            reasons.append(
-                f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ"
-            )
+    if window and payload.start() < window.end and payload.end() > window.start:
+        reasons.append(f"Giờ OT trùng với ca làm ({window.start:%H:%M}–{window.end:%H:%M})")
+    total = (window.hours() if window else 0) + sum(o.hours() for o in same_day) + hours
+    if total > settings.ot_max_total_hours_per_day:
+        reasons.append(f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ")
 
     unreadable = unreadable_history(ctx)
     if unreadable:

@@ -32,7 +32,7 @@ CompanyDate = Annotated[date, BeforeValidator(to_company_date)]
 # ---- Payloads (docs/05-business-spec.md §3-§6) ----
 class LeavePayload(ApiModel):
     """As stored by apps/api: the web sends `leaveType` (code) and the API adds `leaveTypeId`
-    when the code is known. Client-sent `daysCount` is ignored: `computed.daysRequested` wins."""
+    when the code is known. The client's `daysCount` is never read here (see leave_agent.days_requested)."""
 
     leave_type_id: str | None = None
     leave_type: str | None = None  # Code: ANNUAL, SICK, UNPAID, PERSONAL

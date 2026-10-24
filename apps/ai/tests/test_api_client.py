@@ -214,3 +214,11 @@ async def test_list_requests_refuses_to_return_a_cut_history(api: ApiClient, mon
     with pytest.raises(ApiError) as exc:
         await list_requests(api, "emp-001", page_size=2, max_pages=3)
     assert exc.value.code == "HISTORY_TOO_LONG"
+
+
+async def test_one_unreadable_history_row_is_skipped(api: ApiClient, monkeypatch) -> None:
+    async def rows(path: str, params: dict | None = None) -> list[dict]:
+        return [_row("ok", "emp-001", "2026-10-01T03:00:00Z"), {**_row("odd", "emp-001", "2026-10-01T03:00:00Z"), "status": "ARCHIVED"}]
+
+    monkeypatch.setattr(api, "get", rows)
+    assert [r.id for r in await list_requests(api, "emp-001")] == ["ok"]

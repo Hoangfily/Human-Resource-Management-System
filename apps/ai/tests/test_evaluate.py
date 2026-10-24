@@ -286,3 +286,12 @@ async def test_unreadable_api_answer_on_write_is_reported_not_500(
     body = response.json()
     assert "applied" not in body  # Unknown: None is left out of the response
     assert "Không đọc được phản hồi của API (ValueError)" in body["reasons"][-1]
+
+
+async def test_unreadable_request_is_escalated_by_id(client: httpx.AsyncClient, store: MockStore, llm: FakeLLM) -> None:
+    store.requests["req-demo-1"]["type"] = "BRAND_NEW_TYPE"  # Not in our enum: RequestDetail fails
+    response = await evaluate(client)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "ESCALATE" and "không đọc được dữ liệu đơn (ValidationError)" in body["reasons"][0]
+    assert store.requests["req-demo-1"]["status"] == "ESCALATED" and llm.prompts == []

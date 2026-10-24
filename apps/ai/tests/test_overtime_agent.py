@@ -152,3 +152,11 @@ async def test_unreadable_old_ot_escalates_because_totals_may_be_low(api: ApiCli
     bad["payload"]["startTime"] = "broken"
     store.add_request(bad)
     assert "Có 1 đơn OT cũ không đọc được, tổng giờ tháng/năm có thể bị thiếu" in check_limits(await context(api, store), SETTINGS)
+
+
+async def test_other_ot_on_the_same_day_counts_and_must_not_overlap(api: ApiClient, store: MockStore) -> None:
+    store.add_request(ot_request("ot-1", "2026-10-21", "18:00", "22:00"))
+    store.add_request(ot_request("same", "2026-10-21", "18:00", "20:00", status="APPROVED", createdAt="2026-10-18T03:00:00Z"))
+    reasons = check_limits(await context(api, store), SETTINGS)
+    assert "Trùng giờ với đơn OT khác cùng ngày (18:00–20:00)" in reasons
+    assert any("Tổng giờ làm trong ngày 15 giờ" in r for r in reasons)  # 9 + 2 + 4

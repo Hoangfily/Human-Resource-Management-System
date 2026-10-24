@@ -1,6 +1,9 @@
 """Read-only tools that call the HR API (docs/02-agent-tools.md)."""
 
+import logging
 from datetime import date
+
+from pydantic import ValidationError
 
 from ..schemas.common import RequestType
 from ..schemas.requests import (
@@ -16,6 +19,8 @@ from ..schemas.requests import (
     company_tz,
 )
 from .base import ApiClient, ApiError
+
+logger = logging.getLogger(__name__)
 
 
 async def get_request(api: ApiClient, request_id: str) -> RequestDetail:
@@ -57,11 +62,17 @@ async def list_requests(
             "limit": page_size,
             "offset": page * page_size,
         }
-        rows = [RequestDetail.model_validate(r) for r in await api.get("/requests", params=params)]
+        raw = await api.get("/requests", params=params)
+        rows = []
+        for item in raw:
+            try:
+                rows.append(RequestDetail.model_validate(item))
+            except ValidationError:  # One odd old row must not block every future decision
+                logger.warning("Skipping unreadable request row %s", item.get("id") if isinstance(item, dict) else "?")
         for row in rows:
             if row.employee_id == employee_id and (type is None or row.type == type):
                 by_id.setdefault(row.id, row)
-        if len(rows) < page_size or (since and rows and rows[-1].created_at.astimezone(tz).date() < since):
+        if len(raw) < page_size or (since and rows and rows[-1].created_at.astimezone(tz).date() < since):
             break
     else:
         raise ApiError(0, "HISTORY_TOO_LONG", f"more than {max_pages * page_size} requests to read")

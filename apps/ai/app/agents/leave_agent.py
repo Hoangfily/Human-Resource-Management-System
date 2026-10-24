@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 from pydantic import ValidationError
 
+from ..config import Settings
 from ..guardrails.pii import mask_for_llm, redact_text
 from ..guardrails.untrusted import detect_injection, wrap_untrusted
 from ..prompts import load_prompt
@@ -19,6 +20,8 @@ from ..tools.read_tools import get_employee, get_leave_balance, get_policies, li
 from .base import BuiltPrompt, day_label, policy_lines, to_json
 
 HISTORY_DAYS = 90
+KNOWN_LEAVE_TYPES = {"ANNUAL", "SICK", "UNPAID", "PERSONAL"}
+FUNDED_LEAVE_TYPES = {"ANNUAL", "PERSONAL"}  # §3.4: types with a balance to respect
 
 
 @dataclass(frozen=True)
@@ -38,7 +41,9 @@ class LeaveContext:
 
     def leave_type_code(self, payload: LeavePayload) -> str:
         balance = self._balance_for(payload)
-        return balance.leave_type_code if balance else (payload.leave_type or "UNKNOWN")
+        if balance:
+            return balance.leave_type_code
+        return payload.leave_type if payload.leave_type in KNOWN_LEAVE_TYPES else "UNKNOWN"
 
     def balance(self) -> LeaveBalance | None:
         return self._balance_for(self.payload)
@@ -66,13 +71,44 @@ def count_working_days(start: date, end: date, half_day: str | None = None) -> f
 
 
 def days_requested(ctx: LeaveContext) -> float:
+    """The larger of the API's count and our own weekday count.
+
+    apps/api currently copies the client's daysCount into computed.daysRequested, so it alone
+    cannot be trusted: a 10-day leave sent with daysCount=1 must still count as 10.
+    """
+    own = count_working_days(ctx.payload.start_date, ctx.payload.end_date, ctx.payload.half_day)
     computed = ctx.request.computed.get("daysRequested")
-    if computed is not None:
-        return float(computed)
-    return count_working_days(ctx.payload.start_date, ctx.payload.end_date, ctx.payload.half_day)
+    try:
+        return max(own, float(computed)) if computed is not None else own
+    except (TypeError, ValueError):
+        return own
 
 
-def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
+def check_limits(ctx: LeaveContext, settings: Settings) -> list[str]:
+    """Hard rules of docs/05-business-spec.md §3.4 that apps/api does not enforce yet."""
+    reasons: list[str] = []
+    days = days_requested(ctx)
+    code = ctx.leave_type_code(ctx.payload)
+    balance = ctx.balance()
+    if code == "UNKNOWN":
+        reasons.append("Không xác định được loại nghỉ")
+    if code in FUNDED_LEAVE_TYPES:
+        if balance is None:
+            reasons.append(f"Không có quỹ phép {code} để đối chiếu")
+        else:
+            # apps/api reserves this request in pendingDays when it becomes PENDING, and clamps
+            # availableDays at 0, so the unclamped remainder is what tells an overdraft.
+            remaining = balance.total_days - balance.used_days - balance.pending_days
+            if remaining < 0:
+                reasons.append(f"Vượt quỹ phép {code}: thiếu {-remaining:g} ngày")
+    if code == "UNPAID" and days > settings.leave_unpaid_max_auto_days:
+        reasons.append(f"Nghỉ không lương {days:g} ngày, vượt {settings.leave_unpaid_max_auto_days:g} ngày AI được tự quyết")
+    if code == "SICK" and days > settings.leave_sick_cert_after_days and not ctx.request.attachments:
+        reasons.append(f"Nghỉ ốm {days:g} ngày mà không có giấy khám bệnh (bắt buộc khi trên {settings.leave_sick_cert_after_days:g} ngày)")
+    return reasons
+
+
+def build_leave_prompt(ctx: LeaveContext, settings: Settings) -> BuiltPrompt:
     prompt = load_prompt("leave_decision")
     payload = ctx.payload
     days = days_requested(ctx)
@@ -129,5 +165,6 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
         prompt_version=prompt.version,
         policies=ctx.policies,
         injection_flags=detect_injection(payload.reason),
+        limit_reasons=check_limits(ctx, settings),
         days_requested=days,
     )

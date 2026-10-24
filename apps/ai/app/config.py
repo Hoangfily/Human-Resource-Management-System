@@ -25,6 +25,8 @@ class Settings:
     gemini_api_key: str
     ai_min_confidence: float
     ai_max_auto_leave_days: float
+    leave_unpaid_max_auto_days: float  # LEAVE.UNPAID_MAX_AUTO_DAYS
+    leave_sick_cert_after_days: float  # LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS
     ai_max_auto_payroll_hours: float  # AI.MAX_AUTO_PAYROLL_IMPACT_HOURS
     ot_max_total_hours_per_day: float  # OT.MAX_TOTAL_HOURS_PER_DAY (shift + OT)
     ot_max_hours_per_month: float  # OT.MAX_HOURS_PER_MONTH
@@ -55,6 +57,8 @@ def get_settings() -> Settings:
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         ai_min_confidence=_float("AI_MIN_CONFIDENCE", 0.85),
         ai_max_auto_leave_days=_float("AI_MAX_AUTO_LEAVE_DAYS", 3),
+        leave_unpaid_max_auto_days=_float("LEAVE_UNPAID_MAX_AUTO_DAYS", 3),
+        leave_sick_cert_after_days=_float("LEAVE_SICK_CERT_AFTER_DAYS", 2),
         ai_max_auto_payroll_hours=_float("AI_MAX_AUTO_PAYROLL_HOURS", 4),
         ot_max_total_hours_per_day=_float("OT_MAX_TOTAL_HOURS_PER_DAY", 12),
         ot_max_hours_per_month=_float("OT_MAX_HOURS_PER_MONTH", 40),
