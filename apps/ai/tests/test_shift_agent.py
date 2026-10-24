@@ -131,3 +131,12 @@ async def test_back_to_back_shift_on_the_same_new_day(api: ApiClient, store: Moc
     reasons = check_limits(await context(api), SETTINGS)
     assert any("Chỉ nghỉ 0 giờ với ca khác cùng ngày (06:00–14:00)" in r for r in reasons), reasons
     assert any("Tổng giờ làm trong ngày 16 giờ" in r for r in reasons)
+
+
+async def test_every_other_shift_on_the_new_day_is_checked(api: ApiClient, store: MockStore) -> None:
+    row(store, "emp-001", FRI, f"{THU}T22:00:00.000Z", f"{FRI}T01:00:00.000Z")  # Fri 05:00-08:00
+    row(store, "emp-001", FRI, f"{FRI}T14:00:00.000Z", f"{FRI}T16:00:00.000Z")  # Fri 21:00-23:00
+    store.add_request(shift_request("s1", {"shiftDate": THU, "newDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, THU, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert "Ca mới trùng với ca khác đã phân ngày 23/10" in reasons  # The second one (21:00) overlaps 14:00-22:00

@@ -321,3 +321,56 @@ async def test_logs_never_contain_request_data(client: httpx.AsyncClient, store:
         await evaluate(client)
     assert "ValidationError on type" in caplog.text
     assert "0912345678" not in caplog.text
+
+
+# ---- write outcomes (follow-up review) ----
+async def test_write_lost_before_landing_is_sent_once_more(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    real_post, calls = api.post, []
+
+    async def flaky(path: str, json: dict) -> object:
+        calls.append(path)
+        if len(calls) == 1:
+            raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # Never reached the API
+        return await real_post(path, json)
+
+    monkeypatch.setattr(api, "post", flaky)
+    body = (await evaluate(client)).json()
+    assert (body["status"], body["applied"]) == ("APPROVED", True)
+    assert len(calls) == 2 and store.writes[-1]["body"]["idempotencyKey"].startswith("ai-eval:")
+
+
+async def test_api_turning_the_decision_into_an_escalation_is_reported(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def escalated_then_timed_out(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "ESCALATED"
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")
+
+    monkeypatch.setattr(api, "post", escalated_then_timed_out)
+    body = (await evaluate(client)).json()
+    assert (body["status"], body["applied"]) == ("ESCALATED", False)
+    assert body["reasons"][-1] == "API đã chuyển đơn cho người duyệt"
+
+
+async def test_a_refused_write_is_plainly_not_applied(client: httpx.AsyncClient, api: ApiClient, monkeypatch) -> None:
+    async def refused(path: str, json: dict) -> object:
+        raise ApiError(400, "VALIDATION_FAILED", "trace too big")
+
+    monkeypatch.setattr(api, "post", refused)
+    body = (await evaluate(client)).json()
+    assert body["applied"] is False and body["reasons"][-1] == "API không nhận kết quả: VALIDATION_FAILED"
+
+
+async def test_unexpected_errors_log_where_but_not_what(client: httpx.AsyncClient, monkeypatch, caplog) -> None:
+    import app.agents.supervisor as supervisor
+
+    def broken(*args, **kwargs):
+        raise TypeError("secret 0912345678")
+
+    monkeypatch.setattr(supervisor, "apply_autonomy", broken)
+    with caplog.at_level("ERROR"):
+        await evaluate(client)
+    assert "TypeError at test_evaluate.py:" in caplog.text
+    assert "0912345678" not in caplog.text

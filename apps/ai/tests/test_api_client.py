@@ -238,3 +238,16 @@ async def test_writes_are_not_replayed_after_a_read_timeout() -> None:
         with pytest.raises(ApiError):
             await client.get("/requests/r")
     assert calls == {"POST": 1, "GET": 4}  # Reads are still retried
+
+
+async def test_writes_are_not_replayed_on_5xx() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(503, json={"code": "UNAVAILABLE"})
+
+    async with ApiClient("http://x", "t", transport=httpx.MockTransport(handler), backoff_s=0) as client:
+        with pytest.raises(ApiError):
+            await client.post("/requests/r/escalate", json={})
+    assert calls == ["POST"]

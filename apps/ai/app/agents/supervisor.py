@@ -6,7 +6,9 @@ Fail safe: any failure after the request is loaded ends in an escalation, never 
 """
 
 import logging
+import os
 import time
+import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
@@ -180,7 +182,7 @@ class _Run:
             idempotency_key=self.idempotency_key,
             trace=self.trace(reasons),
         )
-        return await self._write(FinalAction.ESCALATE, reasons, escalate_to_human(self.deps.api, self.request.id, body))
+        return await self._write(FinalAction.ESCALATE, reasons, lambda: escalate_to_human(self.deps.api, self.request.id, body))
 
     async def decide(self, action: FinalAction) -> EvaluateResponse:
         a = self.assessment
@@ -194,9 +196,12 @@ class _Run:
             idempotency_key=self.idempotency_key,
             trace=self.trace([]),
         )
-        return await self._write(action, [], decide_request(self.deps.api, self.request.id, body))
+        return await self._write(action, [], lambda: decide_request(self.deps.api, self.request.id, body))
 
-    async def _after_uncertain_write(self, action: FinalAction, reasons: list[str], exc: ApiError) -> EvaluateResponse:
+    async def _after_uncertain_write(
+        self, action: FinalAction, reasons: list[str], send: Callable[[], Awaitable[DecisionResult]], exc: ApiError, retried: bool
+    ) -> EvaluateResponse:
+        """The write timed out or conflicted: look at the request before deciding what happened."""
         target = {
             FinalAction.APPROVE: RequestStatus.APPROVED,
             FinalAction.REJECT: RequestStatus.REJECTED,
@@ -206,12 +211,17 @@ class _Run:
             now = (await get_request(self.deps.api, self.request.id)).status
         except Exception:
             now = None
+        if now is RequestStatus.PENDING and not retried:
+            # Nothing landed: send the same write once more (same idempotency key).
+            return await self._write(action, reasons, send, retried=True)
+        applied: bool | None = False
         if now is target:
             note = f"Đơn đã ở trạng thái {now} (có thể do chính lần ghi này), cần kiểm tra lại"
             applied = None  # Cannot tell whether it was us or a person
+        elif now is RequestStatus.ESCALATED:
+            note = "API đã chuyển đơn cho người duyệt"
         else:
             note = f"API không nhận kết quả: {exc.code}" + (f", đơn đang ở trạng thái {now}" if now else "")
-            applied = False
         return EvaluateResponse(
             request_id=self.request.id,
             action=action,
@@ -221,14 +231,22 @@ class _Run:
             assessment=self.assessment,
         )
 
-    async def _write(self, action: FinalAction, reasons: list[str], call: Any) -> EvaluateResponse:
+    async def _write(
+        self,
+        action: FinalAction,
+        reasons: list[str],
+        send: Callable[[], Awaitable[DecisionResult]],
+        retried: bool = False,
+    ) -> EvaluateResponse:
         try:
-            result: DecisionResult = await call
+            result = await send()
         except ApiError as exc:
-            if exc.code == "WRITE_OUTCOME_UNKNOWN" or exc.status in (400, 409):
-                # The write may have landed (timeout) or the request moved on (cancelled, decided by
-                # a manager, or by our own earlier attempt). Report what the request looks like now.
-                return await self._after_uncertain_write(action, reasons, exc)
+            if exc.code == "WRITE_OUTCOME_UNKNOWN" or exc.status == 409:
+                # The write may have landed (timeout), or the request moved on (cancelled, decided by
+                # a manager, or by our own earlier attempt).
+                return await self._after_uncertain_write(action, reasons, send, exc, retried)
+            # Anything else (400, 404, 5xx...) was refused: the request stays where it was, PENDING
+            # requests remain in the manager's queue.
             return EvaluateResponse(
                 request_id=self.request.id,
                 action=action,
@@ -257,7 +275,6 @@ class _Run:
             assessment=self.assessment,
         )
 
-
 async def _escalate_unreadable(deps: EvaluationDeps, request_id: str, exc: Exception) -> EvaluateResponse:
     """Hand a request we cannot parse to a human by id, without context or trace."""
     reason = f"AI không đọc được dữ liệu đơn ({type(exc).__name__}), cần người duyệt"
@@ -281,7 +298,10 @@ def _log_failure(message: str, request_id: str, exc: Exception) -> None:
     elif isinstance(exc, ApiError):
         detail = f"ApiError {exc.status} {exc.code}"
     else:
-        detail = type(exc).__name__
+        # Where it failed (file, line, function) helps debugging; the message text may hold data.
+        frames = traceback.extract_tb(exc.__traceback__)[-3:]
+        where = " <- ".join(f"{os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in reversed(frames))
+        detail = f"{type(exc).__name__} at {where}" if where else type(exc).__name__
     logger.error(message + " (%s)", request_id, detail)
 
 

@@ -56,8 +56,13 @@ class ShiftContext:
     def new_date(self) -> date | None:
         return self.payload.new_date or self.base_date
 
+    def schedules_on(self, day: date) -> list[ScheduleEntry]:
+        """The employee's other assigned shifts that day (the one being changed excluded)."""
+        current_id = self.current.id if self.current else None
+        return [s for s in self.own_schedules if s.date == day and s.id != current_id]
+
     def schedule_on(self, day: date) -> ScheduleEntry | None:
-        return next((s for s in self.own_schedules if s.date == day and s.id != (self.current.id if self.current else None)), None)
+        return next(iter(self.schedules_on(day)), None)
 
     def old_window(self) -> ShiftWindow | None:
         if self.base_date is None:
@@ -133,10 +138,11 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
 
     if old and (old.start, old.end) == (new.start, new.end):
         reasons.append("Ca mới trùng với ca hiện tại")
-    other = ctx.schedule_on(new.start.date())
-    if other and other.overlaps(new.start, new.end):
-        reasons.append(f"Ca mới trùng với ca khác đã phân ngày {new.start:%d/%m}")
-    elif other:
+    same_day_hours = 0.0
+    for other in ctx.schedules_on(new.start.date()):
+        if other.overlaps(new.start, new.end):
+            reasons.append(f"Ca mới trùng với ca khác đã phân ngày {new.start:%d/%m}")
+            continue
         # Back-to-back shifts on the same day: the neighbour-day checks below never see this one.
         tz = company_tz()
         o_start, o_end = other.shift_start.astimezone(tz), other.shift_end.astimezone(tz)
@@ -146,7 +152,9 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
                 f"Chỉ nghỉ {_hours(rest):g} giờ với ca khác cùng ngày ({o_start:%H:%M}–{o_end:%H:%M}), "
                 f"cần tối thiểu {settings.shift_min_rest_hours:g} giờ"
             )
-        total = new.hours() + _hours(o_end - o_start)
+        same_day_hours += _hours(o_end - o_start)
+    if same_day_hours:
+        total = new.hours() + same_day_hours
         if total > settings.ot_max_total_hours_per_day:
             reasons.append(f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ")
 

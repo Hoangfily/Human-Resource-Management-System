@@ -86,7 +86,9 @@ class ApiClient:
                 raise ApiError(0, "API_UNREACHABLE", str(exc)) from exc
 
             self._record(method, path, response.status_code, started)
-            retryable = RETRYABLE_STATUS if method == "GET" else {503}  # 502/504 may hide an applied write
+            # A proxy can answer 502/503/504 after the API applied a write: writes are never replayed here
+            # (the supervisor checks the request and resends with the same idempotency key if needed).
+            retryable = RETRYABLE_STATUS if method == "GET" else set()
             if response.status_code in retryable and attempt < self.max_retries:
                 attempt += 1
                 await asyncio.sleep(self.backoff_s * 2 ** (attempt - 1))
