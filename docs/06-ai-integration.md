@@ -2,7 +2,9 @@
 
 AI service (`apps/ai`) đã chấm được cả 4 loại đơn qua `POST /evaluate`, nhưng hiện chỉ chạy trên mock API. Tài liệu này liệt kê những gì `apps/api` còn thiếu, theo thứ tự ưu tiên. Mock trong `apps/ai/app/mock_api/server.py` chạy đúng hành vi mô tả dưới đây, nên có thể dùng làm code tham khảo.
 
-Trạng thái đối chiếu theo nhánh `origin/api` ngày 24/10/2026.
+Trạng thái đối chiếu theo nhánh `origin/api` ngày 25/10/2026.
+
+Lưu ý: AI tự kiểm tra trong code các luật cứng của spec §3–§6 (quỹ phép, báo trước, trùng ngày, giới hạn giờ OT, hạn giải trình, nghỉ giữa ca…) vì API chưa kiểm tra. Spec vẫn yêu cầu **API kiểm tra các luật này khi tạo hoặc submit đơn**; phần kiểm tra của AI chỉ là lớp thứ hai.
 
 | # | Việc | Ưu tiên | Thiếu thì sao |
 |---|---|---|---|
@@ -77,7 +79,7 @@ Chỉ caller có role `AI` được gọi.
 `decision` chỉ nhận `APPROVED` hoặc `REJECTED`. `reason` là câu hiển thị cho nhân viên.
 
 **Xử lý theo thứ tự:**
-1. **Idempotency:** nếu `idempotencyKey` đã được xử lý trước đó, trả lại đúng kết quả cũ và không làm gì thêm.
+1. **Idempotency:** nếu `idempotencyKey` đã được xử lý trước đó, trả lại đúng kết quả cũ (`200`, không phải `409`) và không làm gì thêm. AI có thể gửi lại cùng request khi bị timeout lúc chờ phản hồi, dù lần đầu API đã ghi xong.
 2. Đơn không ở trạng thái `PENDING` thì trả `409` với `{ "code": "INVALID_TRANSITION" }`.
 3. **Kiểm tra lại**, không tin AI: đọc `AutonomyConfig` của loại đơn và kiểm tra cả 3 điều kiện sau:
    - `level` cho phép quyết định đó: `SUGGEST_ONLY` không cho gì; `AUTO_APPROVE_LOW_RISK` chỉ cho `APPROVED`; `AUTO_DECIDE_LOW_RISK` cho cả `APPROVED` và `REJECTED`.
@@ -168,7 +170,9 @@ AI dùng route này để đếm số người còn lại ở ca cũ khi có ng�
 ## Lỗi phát hiện khi đọc code (không chặn việc ghép AI)
 
 **apps/api**
-- `requests.service.ts` (`create`): tin `payload.daysCount` do client gửi, và khi tự tính thì đếm cả thứ 7, chủ nhật (`diffMs / 86400000 + 1`). Spec §3.3 yêu cầu server tự tính số **ngày làm việc** (thứ 2 đến thứ 6, trừ ngày lễ) và bỏ qua giá trị của client. AI đang dùng `computed.daysRequested` của API, nên nếu số này sai thì AI cũng xét sai.
+- `requests.service.ts` (`create`): tin `payload.daysCount` do client gửi, và khi tự tính thì đếm cả thứ 7, chủ nhật (`diffMs / 86400000 + 1`). Spec §3.3 yêu cầu server tự tính số **ngày làm việc** (thứ 2 đến thứ 6, trừ ngày lễ) và bỏ qua giá trị của client. AI đã tự đếm lại và lấy số lớn hơn, nhưng `pendingDays` trong quỹ phép vẫn bị cộng theo số của client, nên một đơn 5 ngày gửi kèm `daysCount: 1` chỉ giữ chỗ 1 ngày.
+- `requests.service.ts`: mọi chỗ cập nhật `LeaveBalance` (tạo, submit, duyệt, hủy) đều ghi cứng `year: 2026`. Đơn nghỉ năm 2027 sẽ trừ vào quỹ năm 2026. Cần lấy năm từ `payload.startDate`.
+- `shifts.service.ts`: `assignSchedule` lưu `date` bằng `setHours(0, 0, 0, 0)` theo **giờ của server**, còn `getSchedules` lọc bằng `new Date('YYYY-MM-DD')` là **nửa đêm UTC**. Nếu server chạy giờ Việt Nam, lịch ngày 24/10 được lưu là `2026-10-23T17:00Z` và truy vấn `from=to=2026-10-24` không trả về. Nên lưu và lọc cùng một quy ước, ví dụ nửa đêm UTC.
 - `formatRequest`: gán cứng `aiConfidence: 0.95`, `riskLevel: 'LOW'` (khi null), `aiRationale: 'Đơn được khởi tạo hợp lệ…'`, nên giao diện đang hiện số liệu AI **giả**. Cần lấy từ `Approval`/`AgentTrace` mới nhất có `deciderType = AI`, không có thì để `null`.
 - `attendance.service.ts` (`getMyHistory`): ngày bị gom theo UTC, như đã nêu ở mục 5.
 
