@@ -27,6 +27,7 @@ from .base import BuiltPrompt, day_label, policy_lines, to_json
 from .shifts import ShiftWindow, shift_for_day
 
 HISTORY_DAYS = 90
+ADVANCE_DAYS = 92  # How far ahead OT may be registered (counted in the year/month of the OT date)
 # OT that already counts against the monthly/yearly limits
 COUNTED = {RequestStatus.PENDING, RequestStatus.ESCALATED, RequestStatus.APPROVED}
 
@@ -46,7 +47,9 @@ async def gather_overtime_context(api: ApiClient, request: RequestDetail, today:
     payload = request.overtime_payload()
     employee = await get_employee(api, request.employee_id)
     schedules = await get_schedules(api, request.employee_id, payload.date, payload.date)
-    since = min(date(payload.date.year, 1, 1), today - timedelta(days=HISTORY_DAYS))
+    # Rows are fetched by creation date but counted by OT date: start early enough to catch OT
+    # registered in advance (e.g. created in December for January days).
+    since = min(date(payload.date.year, 1, 1) - timedelta(days=ADVANCE_DAYS), today - timedelta(days=HISTORY_DAYS))
     history = [
         r
         for r in await list_requests(api, request.employee_id, type=RequestType.OVERTIME, since=since)
@@ -78,6 +81,19 @@ def counted_hours(ctx: OvertimeContext) -> tuple[float, float]:
     return month, year
 
 
+def unreadable_history(ctx: OvertimeContext) -> int:
+    """Old OT requests that count toward the limits but cannot be read: totals may be too low."""
+    count = 0
+    for past in ctx.history:
+        if past.status not in COUNTED:
+            continue
+        try:
+            past.overtime_payload()
+        except ValidationError:
+            count += 1
+    return count
+
+
 def check_limits(ctx: OvertimeContext, settings: Settings) -> list[str]:
     payload = ctx.payload
     hours = payload.hours()
@@ -99,6 +115,10 @@ def check_limits(ctx: OvertimeContext, settings: Settings) -> list[str]:
             reasons.append(
                 f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ"
             )
+
+    unreadable = unreadable_history(ctx)
+    if unreadable:
+        reasons.append(f"Có {unreadable} đơn OT cũ không đọc được, tổng giờ tháng/năm có thể bị thiếu")
 
     month, year = counted_hours(ctx)
     if month + hours > settings.ot_max_hours_per_month:

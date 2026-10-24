@@ -12,7 +12,7 @@ from .tools.base import ApiClient
 
 
 @lru_cache
-def _llm() -> LLMClient:
+def llm_client() -> LLMClient:
     return get_llm_or_unavailable(get_settings())
 
 
@@ -23,4 +23,4 @@ async def get_evaluation_deps(
     settings = get_settings()
     async with ApiClient(settings.api_base_url, settings.ai_service_token, correlation_id=x_correlation_id) as api:
         today = datetime.now(ZoneInfo(settings.company_timezone)).date()
-        yield EvaluationDeps(api=api, llm=_llm(), settings=settings, today=today)
+        yield EvaluationDeps(api=api, llm=llm_client(), settings=settings, today=today)

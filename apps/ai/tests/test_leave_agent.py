@@ -166,3 +166,4 @@ async def test_malformed_old_request_is_skipped_not_fatal(api: ApiClient, store:
     ctx, built = await prompt_for(api)
     assert {r.id for r in ctx.history} == {"broken", "ok"}
     assert "2026-09-14 (Thứ 2)" in built.user  # The good one is still shown
+    assert "1 older request(s) could not be read and are not shown." in built.user

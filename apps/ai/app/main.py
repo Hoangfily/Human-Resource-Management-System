@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 
 from .api.router import router
+from .deps import llm_client
+from .llm import UnavailableLLM
 
 app = FastAPI(title="HR Agent AI", version="0.1.0")
 app.include_router(router)
@@ -8,4 +10,8 @@ app.include_router(router)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai"}
+    """`degraded` means the LLM could not be built: every request would be escalated."""
+    llm = llm_client()
+    if isinstance(llm, UnavailableLLM):
+        return {"status": "degraded", "service": "ai", "llm": "unavailable", "detail": llm.cause}
+    return {"status": "ok", "service": "ai", "llm": llm.model}

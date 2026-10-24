@@ -43,10 +43,13 @@ async def list_requests(
     """GET /requests is a plain array, newest first, paged with limit/offset, without a date filter.
 
     Pages are read until a short page or until rows are older than `since` (company-time date),
-    so monthly/yearly totals are not cut at the first page.
+    so monthly/yearly totals are not cut at the first page. Rows are kept only if they belong
+    to `employee_id` (the API may not filter for the AI role) and are de-duplicated by id (a
+    request created between two pages shifts the offsets). Hitting `max_pages` raises instead
+    of returning a silently incomplete history.
     """
     tz = company_tz()
-    requests: list[RequestDetail] = []
+    by_id: dict[str, RequestDetail] = {}
     for page in range(max_pages):
         params = {
             "employeeId": employee_id,
@@ -55,9 +58,14 @@ async def list_requests(
             "offset": page * page_size,
         }
         rows = [RequestDetail.model_validate(r) for r in await api.get("/requests", params=params)]
-        requests.extend(rows)
+        for row in rows:
+            if row.employee_id == employee_id and (type is None or row.type == type):
+                by_id.setdefault(row.id, row)
         if len(rows) < page_size or (since and rows and rows[-1].created_at.astimezone(tz).date() < since):
             break
+    else:
+        raise ApiError(0, "HISTORY_TOO_LONG", f"more than {max_pages * page_size} requests to read")
+    requests = list(by_id.values())
     if since:
         requests = [r for r in requests if r.created_at.astimezone(tz).date() >= since]
     return requests

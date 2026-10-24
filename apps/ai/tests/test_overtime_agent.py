@@ -136,3 +136,19 @@ def test_limit_reasons_force_escalation_in_guard() -> None:
         limit_reasons=["OT hồi tố"],
     )
     assert result.action is FinalAction.ESCALATE and result.reasons == ["OT hồi tố"]
+
+
+async def test_ot_registered_in_advance_counts_in_its_own_year(api: ApiClient, store: MockStore) -> None:
+    # Created in December for January: still part of the year when evaluating in July.
+    store.add_request(ot_request("jan", "2026-01-05", "18:00", "21:00", status="APPROVED", createdAt="2025-12-20T03:00:00Z"))
+    store.add_request(ot_request("ot-1", "2026-07-20", "18:00", "20:00"))
+    ctx = await gather_overtime_context(api, await get_request(api, "ot-1"), date(2026, 7, 15))
+    assert counted_hours(ctx) == (0, 3)
+
+
+async def test_unreadable_old_ot_escalates_because_totals_may_be_low(api: ApiClient, store: MockStore) -> None:
+    store.add_request(ot_request("ot-1", "2026-10-21", "18:00", "20:00"))
+    bad = ot_request("h1", "2026-10-07", "18:00", "21:00", status="APPROVED", createdAt="2026-10-06T01:00:00Z")
+    bad["payload"]["startTime"] = "broken"
+    store.add_request(bad)
+    assert "Có 1 đơn OT cũ không đọc được, tổng giờ tháng/năm có thể bị thiếu" in check_limits(await context(api, store), SETTINGS)

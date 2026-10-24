@@ -168,3 +168,14 @@ async def test_unavailable_llm_always_raises_llm_error() -> None:
 
     with pytest.raises(LLMError, match="not configured: no key"):
         await UnavailableLLM("no key").assess("s", "u")
+
+
+def test_any_build_error_becomes_unavailable(monkeypatch) -> None:
+    import app.llm as llm_module
+
+    def no_sdk(settings):
+        raise ImportError("No module named 'google.genai'")
+
+    monkeypatch.setattr(llm_module, "get_llm", no_sdk)
+    llm = llm_module.get_llm_or_unavailable(get_settings())
+    assert isinstance(llm, llm_module.UnavailableLLM) and "ImportError" in llm.cause

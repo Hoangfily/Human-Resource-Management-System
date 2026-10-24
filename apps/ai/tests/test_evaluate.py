@@ -249,3 +249,40 @@ async def test_unconfigured_llm_escalates_every_request(client: httpx.AsyncClien
     body = (await evaluate(client)).json()
     assert body["action"] == "ESCALATE"
     assert "GEMINI_API_KEY is not set" in store.writes[-1]["body"]["trace"]["toolCalls"][-1]["error"]
+
+
+async def test_llm_client_bug_puts_only_the_error_type_in_the_trace(
+    client: httpx.AsyncClient, store: MockStore, llm: FakeLLM
+) -> None:
+    def leaky(system: str, user: str) -> LLMAssessment:
+        raise KeyError("prompt fragment with employee data")
+
+    llm.responses = [leaky]
+    await evaluate(client)
+    error = store.writes[-1]["body"]["trace"]["toolCalls"][-1]["error"]
+    assert error == "KeyError"
+
+
+async def test_guardrail_bug_escalates(client: httpx.AsyncClient, store: MockStore, monkeypatch) -> None:
+    import app.agents.supervisor as supervisor
+
+    def broken(*args, **kwargs):
+        raise TypeError("bug")
+
+    monkeypatch.setattr(supervisor, "apply_autonomy", broken)
+    body = (await evaluate(client)).json()
+    assert body["action"] == "ESCALATE" and "(TypeError)" in body["reasons"][0]
+
+
+async def test_unreadable_api_answer_on_write_is_reported_not_500(
+    client: httpx.AsyncClient, api: ApiClient, monkeypatch
+) -> None:
+    async def garbled(path: str, json: dict) -> object:
+        raise ValueError("Expecting value: line 1 column 1")
+
+    monkeypatch.setattr(api, "post", garbled)
+    response = await evaluate(client)
+    assert response.status_code == 200
+    body = response.json()
+    assert "applied" not in body  # Unknown: None is left out of the response
+    assert "Không đọc được phản hồi của API (ValueError)" in body["reasons"][-1]

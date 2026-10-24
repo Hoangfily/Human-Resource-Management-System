@@ -23,7 +23,8 @@ Trạng thái đối chiếu theo nhánh `origin/api` ngày 24/10/2026.
 **Cần làm:**
 - Thêm biến môi trường `AI_SERVICE_TOKEN` cho API (cùng giá trị với `AI_SERVICE_TOKEN` của AI service).
 - Sửa guard: nếu header `Authorization: Bearer <token>` khớp `AI_SERVICE_TOKEN` (so sánh kiểu constant-time, ví dụ `crypto.timingSafeEqual`), cho qua và đặt `caller = { id: 'ai-service', role: 'AI' }`. Ngược lại xử lý JWT như cũ.
-- Role `AI` được **đọc** dữ liệu của mọi nhân viên, và chỉ được **ghi** qua `/ai-decision` và `/escalate`. Các service hiện chỉ chặn `EMPLOYEE` và giới hạn `MANAGER`, nên role `AI` đã tự có quyền đọc như HR. Cần chặn `AI` ở các route ghi khác (`POST /requests`, `/decision`, `/cancel`, `/return`, `/policy`, `/agent/autonomy-config`…).
+- Role `AI` được **đọc** dữ liệu của mọi nhân viên, và chỉ được **ghi** qua `/ai-decision` và `/escalate`. Cần chặn `AI` ở các route ghi khác (`POST /requests`, `/decision`, `/cancel`, `/return`, `/policy`, `/agent/autonomy-config`…).
+- **Phải xử lý `AI` giống `HR`/`ADMIN` ở mọi chỗ kiểm tra role, không chỉ ở chỗ chặn.** Ví dụ `requests.service.ts` `findAll` chỉ đặt `where.employeeId` trong nhánh `EMPLOYEE`/`MANAGER`/`HR`/`ADMIN`. Với role `AI`, không nhánh nào khớp, nên `GET /requests?employeeId=X` trả về **đơn của tất cả nhân viên**. Sửa: `else if (['HR', 'ADMIN', 'AI'].includes(caller.role))`. AI có tự lọc lại theo `employeeId`, nhưng chỉ để phòng hờ, không thay cho việc lọc ở API.
 - `'ai-service'` **không phải** id của một `Employee`. Khi ghi DB thì để `approverId`/`actorId` là `null` và `actorType`/`deciderType` là `AI`, không được dùng làm khóa ngoại.
 - Ghi `X-Correlation-Id` (AI gửi kèm mọi request) vào `AuditLog.correlationId`.
 
@@ -32,7 +33,7 @@ Trạng thái đối chiếu theo nhánh `origin/api` ngày 24/10/2026.
 | Method | Path | Ghi chú |
 |---|---|---|
 | GET | `/requests/:id` | Đã có |
-| GET | `/requests?employeeId=&type=&limit=100` | Đã có |
+| GET | `/requests?employeeId=&type=&limit=100&offset=` | Có, cần sửa: lọc `employeeId` cho role `AI` (xem trên). AI đọc theo trang bằng `offset` |
 | GET | `/employees/:id` | Đã có |
 | GET | `/leave/balance?employeeId=` | Đã có |
 | GET | `/policy` | Đã có |

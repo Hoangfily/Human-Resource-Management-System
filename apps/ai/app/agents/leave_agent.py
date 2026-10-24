@@ -94,11 +94,13 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
     if ctx.employee.join_date:
         employee["monthsSinceJoin"] = (ctx.today - ctx.employee.join_date).days // 30
     history = []
+    unreadable = 0
     for past in ctx.history:  # Metadata only: past reasons are neither needed nor trusted
         try:
             past_payload = past.leave_payload()
         except ValidationError:
-            continue  # A malformed old request must not block today's decision
+            unreadable += 1  # Must not block today's decision, but the LLM is told below
+            continue
         history.append(
             {
                 "leaveType": ctx.leave_type_code(past_payload),
@@ -116,7 +118,8 @@ def build_leave_prompt(ctx: LeaveContext) -> BuiltPrompt:
             f"## Reason\n{wrap_untrusted(reason, 'reason')}",
             f"## Employee\n{to_json(employee)}",
             f"## Balance for this leave type\n{to_json(balance.to_api() if balance else None)}",
-            f"## Leave history (last {HISTORY_DAYS} days, this request excluded)\n{to_json(history)}",
+            f"## Leave history (last {HISTORY_DAYS} days, this request excluded)\n{to_json(history)}"
+            + (f"\n{unreadable} older request(s) could not be read and are not shown." if unreadable else ""),
             f"## Policies (version {ctx.policies.version}). Cite only these keys.\n{policy_lines(ctx.policies)}",
         ]
     )

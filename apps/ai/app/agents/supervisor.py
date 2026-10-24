@@ -90,23 +90,32 @@ async def evaluate_request(request_id: str, deps: EvaluationDeps) -> EvaluateRes
     try:
         assessment = await deps.llm.assess(built.system, built.user)
     except Exception as exc:  # LLMError, or a bug in an LLM client
-        if not isinstance(exc, LLMError):
+        # LLMError messages are ours; other messages may carry prompt or payload text, so the
+        # trace (stored by the API, read by HR) only gets the exception type. Details go to the log.
+        if isinstance(exc, LLMError):
+            error = str(exc)
+        else:
             logger.exception("Unexpected LLM client error for request %s", request.id)
-        run.record_llm(started, error=str(exc))
+            error = type(exc).__name__
+        run.record_llm(started, error=error)
         return await run.escalate(["AI không đánh giá được do lỗi kỹ thuật, cần người duyệt"])
     run.record_llm(started)
     run.assessment = assessment
 
-    guard = apply_autonomy(
-        assessment,
-        autonomy,
-        known_policy_keys=built.policies.keys(),
-        global_min_confidence=deps.settings.ai_min_confidence,
-        injection_flags=built.injection_flags,
-        days_requested=built.days_requested,
-        max_auto_days=deps.settings.ai_max_auto_leave_days,
-        limit_reasons=built.limit_reasons,
-    )
+    try:
+        guard = apply_autonomy(
+            assessment,
+            autonomy,
+            known_policy_keys=built.policies.keys(),
+            global_min_confidence=deps.settings.ai_min_confidence,
+            injection_flags=built.injection_flags,
+            days_requested=built.days_requested,
+            max_auto_days=deps.settings.ai_max_auto_leave_days,
+            limit_reasons=built.limit_reasons,
+        )
+    except Exception as exc:
+        logger.exception("Unexpected guardrail error for request %s", request.id)
+        return await run.escalate([f"Lỗi khi kiểm tra điều kiện tự quyết ({type(exc).__name__})"])
     if guard.action is FinalAction.ESCALATE:
         return await run.escalate(guard.reasons)
     return await run.decide(guard.action)
@@ -191,6 +200,16 @@ class _Run:
                 action=action,
                 applied=False,
                 reasons=[*reasons, f"API không nhận kết quả: {exc.code}"],
+                assessment=self.assessment,
+            )
+        except Exception as exc:
+            # The API answered something unreadable: whether the write happened is unknown.
+            logger.exception("Unreadable API answer while writing request %s", self.request.id)
+            return EvaluateResponse(
+                request_id=self.request.id,
+                action=action,
+                applied=None,
+                reasons=[*reasons, f"Không đọc được phản hồi của API ({type(exc).__name__}), cần kiểm tra lại đơn"],
                 assessment=self.assessment,
             )
         if not result.applied and result.escalation_reason:

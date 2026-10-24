@@ -204,10 +204,12 @@ def build_attendance_prompt(ctx: AttendanceContext, settings: Settings) -> Built
     )
     employee = mask_for_llm(ctx.employee.model_dump(mode="json", by_alias=True, exclude={"id"}))
     history = []
+    unreadable = 0
     for past in ctx.history:  # Metadata only: past explanations are neither needed nor trusted
         try:
             o = past.attendance_payload()
         except ValidationError:
+            unreadable += 1
             continue
         history.append({"date": day_label(o.date), "issue": o.issue, "status": past.status.value})
 
@@ -220,7 +222,8 @@ def build_attendance_prompt(ctx: AttendanceContext, settings: Settings) -> Built
             f"## Shift on that day\n{to_json(window.to_prompt() if window else None)}",
             f"## Clock events on that day (null = not available)\n{to_json(events)}",
             f"## Limit findings (computed by code)\n{to_json(limits)}",
-            f"## Explanation history (last {HISTORY_DAYS} days, this request excluded)\n{to_json(history)}",
+            f"## Explanation history (last {HISTORY_DAYS} days, this request excluded)\n{to_json(history)}"
+            + (f"\n{unreadable} older request(s) could not be read and are not shown." if unreadable else ""),
             f"## Policies (version {ctx.policies.version}). Cite only these keys.\n{policy_lines(ctx.policies)}",
         ]
     )

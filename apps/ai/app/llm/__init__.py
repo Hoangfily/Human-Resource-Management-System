@@ -1,6 +1,10 @@
+import logging
+
 from ..config import Settings
 from ..schemas.decision import LLMAssessment
 from .base import LLMClient, LLMError
+
+logger = logging.getLogger(__name__)
 
 
 def get_llm(settings: Settings) -> LLMClient:
@@ -36,10 +40,13 @@ class UnavailableLLM:
 
 
 def get_llm_or_unavailable(settings: Settings) -> LLMClient:
+    """Any failure to build the client (missing key, unknown provider, SDK import or init error)
+    becomes an UnavailableLLM, loudly logged: requests escalate instead of failing with a 500."""
     try:
         return get_llm(settings)
-    except (LLMError, ValueError) as exc:
-        return UnavailableLLM(str(exc))
+    except Exception as exc:
+        logger.error("LLM unavailable, every request will be escalated: %s: %s", type(exc).__name__, exc)
+        return UnavailableLLM(f"{type(exc).__name__}: {exc}")
 
 
 __all__ = ["LLMClient", "LLMError", "UnavailableLLM", "get_llm", "get_llm_or_unavailable"]

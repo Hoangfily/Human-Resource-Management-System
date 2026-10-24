@@ -173,3 +173,44 @@ async def test_since_uses_the_company_date(api: ApiClient, store: MockStore) -> 
     store.add_request(_leave(1, "2026-07-26T20:00:00Z"))  # 27/07 03:00 in Vietnam
     ids = [r.id for r in await list_requests(api, "emp-001", since=date(2026, 7, 27))]
     assert "bulk-1" in ids
+
+
+def _row(request_id: str, employee: str, created: str, type_: str = "LEAVE") -> dict:
+    return {**_leave(0, created), "id": request_id, "employeeId": employee, "type": type_}
+
+
+async def test_list_requests_keeps_only_the_employee_and_type(api: ApiClient, monkeypatch) -> None:
+    # The real API does not filter by employeeId for the AI role: everyone's rows come back.
+    async def everyone(path: str, params: dict | None = None) -> list[dict]:
+        return [
+            _row("mine", "emp-001", "2026-10-01T03:00:00Z"),
+            _row("theirs", "emp-999", "2026-10-01T03:00:00Z"),
+            _row("other-type", "emp-001", "2026-10-01T03:00:00Z", "OVERTIME"),
+        ]
+
+    monkeypatch.setattr(api, "get", everyone)
+    assert [r.id for r in await list_requests(api, "emp-001", type=RequestType.LEAVE)] == ["mine"]
+
+
+async def test_list_requests_drops_rows_repeated_across_pages(api: ApiClient, monkeypatch) -> None:
+    pages = {
+        0: [_row(f"r{i}", "emp-001", "2026-10-01T03:00:00Z") for i in range(2)],
+        2: [_row("r1", "emp-001", "2026-10-01T03:00:00Z")],  # Shifted by a new request
+    }
+
+    async def paged(path: str, params: dict | None = None) -> list[dict]:
+        return pages.get(params["offset"], [])
+
+    monkeypatch.setattr(api, "get", paged)
+    rows = await list_requests(api, "emp-001", page_size=2)
+    assert sorted(r.id for r in rows) == ["r0", "r1"]
+
+
+async def test_list_requests_refuses_to_return_a_cut_history(api: ApiClient, monkeypatch) -> None:
+    async def endless(path: str, params: dict | None = None) -> list[dict]:
+        return [_row(f"r{params['offset'] + i}", "emp-001", "2026-10-01T03:00:00Z") for i in range(2)]
+
+    monkeypatch.setattr(api, "get", endless)
+    with pytest.raises(ApiError) as exc:
+        await list_requests(api, "emp-001", page_size=2, max_pages=3)
+    assert exc.value.code == "HISTORY_TOO_LONG"
