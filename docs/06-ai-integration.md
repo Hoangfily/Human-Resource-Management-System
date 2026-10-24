@@ -23,7 +23,7 @@ Lưu ý: AI tự kiểm tra trong code các luật cứng của spec §3–§6 (
 **Hiện tại:** mọi controller dùng `JwtAuthGuard`, chỉ nhận JWT của người đăng nhập. AI service không có tài khoản người dùng nên bị 401.
 
 **Cần làm:**
-- Thêm biến môi trường `AI_SERVICE_TOKEN` cho API (cùng giá trị với `AI_SERVICE_TOKEN` của AI service).
+- Thêm biến môi trường `AI_SERVICE_TOKEN` cho API (cùng giá trị với `AI_SERVICE_TOKEN` của AI service). Trong `docker-compose.yml`, service `ai` đã nhận `AI_SERVICE_TOKEN` và `AI_INBOUND_TOKEN` từ file `.env` ở gốc repo (xem `.env.example`). Service `api` cần thêm đúng hai dòng này: `AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}` và `AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:-}`.
 - Sửa guard: nếu header `Authorization: Bearer <token>` khớp `AI_SERVICE_TOKEN` (so sánh kiểu constant-time, ví dụ `crypto.timingSafeEqual`), cho qua và đặt `caller = { id: 'ai-service', role: 'AI' }`. Ngược lại xử lý JWT như cũ.
 - Role `AI` được **đọc** dữ liệu của mọi nhân viên, và chỉ được **ghi** qua `/ai-decision` và `/escalate`. Cần chặn `AI` ở các route ghi khác (`POST /requests`, `/decision`, `/cancel`, `/return`, `/policy`, `/agent/autonomy-config`…).
 - **Phải xử lý `AI` giống `HR`/`ADMIN` ở mọi chỗ kiểm tra role, không chỉ ở chỗ chặn.** Ví dụ `requests.service.ts` `findAll` chỉ đặt `where.employeeId` trong nhánh `EMPLOYEE`/`MANAGER`/`HR`/`ADMIN`. Với role `AI`, không nhánh nào khớp, nên `GET /requests?employeeId=X` trả về **đơn của tất cả nhân viên**. Sửa: `else if (['HR', 'ADMIN', 'AI'].includes(caller.role))`. AI có tự lọc lại theo `employeeId`, nhưng chỉ để phòng hờ, không thay cho việc lọc ở API.
