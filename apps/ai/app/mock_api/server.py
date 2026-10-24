@@ -82,16 +82,28 @@ def create_mock_api(store: MockStore) -> FastAPI:
     def get_balance(employeeId: str) -> dict[str, Any]:
         return {"balances": store.balances.get(employeeId, [])}
 
+    @api.get("/shifts/templates")
+    def get_shift_templates() -> list[dict[str, Any]]:
+        return store.shift_templates
+
     @api.get("/shifts/schedules")
     def get_schedules(
-        employeeId: str, start: str | None = Query(None, alias="from"), end: str | None = Query(None, alias="to")
+        employeeId: str | None = None,
+        departmentId: str | None = None,  # Not in apps/api yet (it only filters by employee)
+        start: str | None = Query(None, alias="from"),
+        end: str | None = Query(None, alias="to"),
     ) -> list[dict[str, Any]]:
-        # Like apps/api: one employee, optional inclusive date range, oldest first, employee embedded.
-        employee = store.employees.get(employeeId, {})
+        # Like apps/api: optional inclusive date range, oldest first, employee embedded.
+        def employee_of(row: dict[str, Any]) -> dict[str, Any]:
+            e = store.employees.get(row["employeeId"], {})
+            return {"id": row["employeeId"], "fullName": e.get("fullName"), "email": e.get("email"),
+                    "department": {"id": e.get("departmentId")}}
+
         rows = [
-            {**s, "employee": {"id": employeeId, "fullName": employee.get("fullName"), "email": employee.get("email")}}
+            {**s, "employee": employee_of(s)}
             for s in store.schedules
-            if s["employeeId"] == employeeId
+            if (employeeId is None or s["employeeId"] == employeeId)
+            and (departmentId is None or employee_of(s)["department"]["id"] == departmentId)
             and (start is None or s["date"][:10] >= start)
             and (end is None or s["date"][:10] <= end)
         ]

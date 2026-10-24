@@ -23,7 +23,8 @@ Business rules and status transitions are defined in `05-business-spec.md`; poli
 | POST | `/requests/:id/ai-decision` | AI (service token) | AI approves/rejects a PENDING request. **Not built in apps/api yet** |
 | POST | `/requests/:id/decision` | Manager, HR | Human decision on PENDING/ESCALATED, or override of an AI/SYSTEM decision |
 | POST | `/requests/:id/return` | Manager, HR | ESCALATED → DRAFT to ask for more information |
-| GET | `/shifts/schedules` | User, AI | Assigned shifts (`?employeeId=&from=&to=`). Array of `{ id, employeeId, date, shiftStart, shiftEnd }` |
+| GET | `/shifts/templates` | User, AI | Shift templates. Array of `{ id, name, startTime, endTime }` (`HH:mm`; end before start = night shift) |
+| GET | `/shifts/schedules` | User, AI | Assigned shifts (`?employeeId=&from=&to=`). Array of `{ id, employeeId, date, shiftStart, shiftEnd, employee: { department: { id } } }`. The AI also calls it with `?departmentId=&from=&to=` to count colleagues left on a shift: **not built in apps/api yet** (it ignores departmentId and returns the caller's rows) |
 | GET | `/attendance/events` | HR, AI | Raw clock events of one employee (`?employeeId=&from=&to=`). Array of `{ id, employeeId, type, timestamp }` (ISO UTC). **Not built in apps/api yet**: `/attendance/history` only returns the caller's own days, pre-formatted, so the AI cannot use it |
 | GET | `/policy` | User, AI | Active `CompanyPolicy` entries (`?search=&activeOnly=`). Returns an array of `{ key, version, title, content, isActive }` |
 | GET | `/policy/:key` | User, AI | One policy entry |

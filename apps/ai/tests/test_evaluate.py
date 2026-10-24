@@ -7,13 +7,14 @@ from datetime import date
 import httpx
 import pytest
 
-from app.agents.supervisor import EvaluationDeps
+from app.agents.supervisor import AGENTS, EvaluationDeps
 from app.config import get_settings
 from app.deps import get_evaluation_deps
 from app.llm import LLMError
 from app.llm.fake import FakeLLM
 from app.main import app
 from app.mock_api.fixtures import MockStore
+from app.schemas.common import RequestType
 from app.schemas.decision import LLMAssessment
 from app.tools.base import ApiClient
 
@@ -145,9 +146,10 @@ async def test_real_api_without_ai_decision_route_is_reported(client: httpx.Asyn
     assert store.requests["req-demo-1"]["status"] == "PENDING"
 
 
-async def test_unsupported_type_escalates_without_calling_llm(
-    client: httpx.AsyncClient, store: MockStore, llm: FakeLLM
+async def test_type_without_agent_escalates_without_calling_llm(
+    client: httpx.AsyncClient, store: MockStore, llm: FakeLLM, monkeypatch
 ) -> None:
+    monkeypatch.delitem(AGENTS, RequestType.SHIFT_CHANGE)  # A type added to the API before its agent
     store.requests["req-demo-1"]["type"] = "SHIFT_CHANGE"
     body = (await evaluate(client)).json()
     assert body["action"] == "ESCALATE" and "SHIFT_CHANGE chưa được AI hỗ trợ" in body["reasons"][0]

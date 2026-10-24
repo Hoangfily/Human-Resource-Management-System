@@ -43,6 +43,9 @@ _POLICIES = [
     ("ATTENDANCE.MAJOR_DEVIATION_MINUTES", "Lệch giờ lớn", "Sửa giờ lệch quá 120 phút so với dữ liệu gốc phải được người duyệt."),
     ("ATTENDANCE.EVIDENCE_REQUIRED_AFTER_MINUTES", "Bằng chứng", "Lệch trên 30 phút phải có bằng chứng đính kèm."),
     ("ATTENDANCE.MAX_AUTO_PER_MONTH", "Số đơn giải trình mỗi tháng", "Quá 3 đơn giải trình trong tháng phải được người duyệt."),
+    ("SHIFT.NOTICE_HOURS", "Báo trước khi đổi ca", "Đổi ca phải báo trước ít nhất 48 giờ."),
+    ("SHIFT.MIN_REST_HOURS", "Nghỉ giữa hai ca", "Giữa hai ca phải nghỉ ít nhất 12 giờ."),
+    ("SHIFT.MIN_STAFF_PER_SHIFT", "Số người tối thiểu mỗi ca", "Mỗi ca phải còn ít nhất 2 người của phòng ban."),
     ("OT.MAX_TOTAL_HOURS_PER_DAY", "Giờ làm tối đa mỗi ngày", "Tổng giờ làm trong ngày (ca + làm thêm) không quá 12 giờ."),
     ("OT.MAX_HOURS_PER_MONTH", "Làm thêm tối đa mỗi tháng", "Không quá 40 giờ làm thêm mỗi tháng."),
     ("OT.MAX_HOURS_PER_YEAR", "Làm thêm tối đa mỗi năm", "Không quá 200 giờ làm thêm mỗi năm."),
@@ -64,6 +67,16 @@ def default_autonomy() -> dict[str, dict[str, Any]]:
         "SHIFT_CHANGE": "AUTO_DECIDE_LOW_RISK",
     }
     return {t: {"requestType": t, "level": lvl, "minConfidence": 0.85} for t, lvl in levels.items()}
+
+
+def default_shift_templates() -> list[dict[str, Any]]:
+    rows = [
+        ("tpl-morning", "Ca sáng", "06:00", "14:00"),
+        ("tpl-standard", "Ca hành chính tiêu chuẩn", "08:30", "17:30"),
+        ("tpl-afternoon", "Ca chiều", "14:00", "22:00"),
+        ("tpl-night", "Ca đêm", "22:00", "06:00"),
+    ]
+    return [{"id": i, "name": n, "startTime": s, "endTime": e} for i, n, s, e in rows]
 
 
 def default_employee(employee_id: str = "emp-001") -> dict[str, Any]:
@@ -111,6 +124,7 @@ class MockStore:
     missing_paths: set[str] = field(default_factory=set)  # Path suffixes answered with 404, e.g. "/ai-decision"
     schedules: list[dict[str, Any]] = field(default_factory=list)  # Rows of GET /shifts/schedules
     attendance_events: list[dict[str, Any]] = field(default_factory=list)  # Rows of GET /attendance/events
+    shift_templates: list[dict[str, Any]] = field(default_factory=default_shift_templates)
 
     def add_employee(self, employee: dict[str, Any], balances: list[dict[str, Any]] | None = None) -> None:
         self.employees[employee["id"]] = deepcopy(employee)

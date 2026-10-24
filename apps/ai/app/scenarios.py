@@ -13,6 +13,7 @@ Scenario file (tests/scenarios/<type>/*.json):
   "schedules": [{...}],        # rows of GET /shifts/schedules: {"date", "shiftStart", "shiftEnd"}
   "events": [{...}],           # rows of GET /attendance/events: {"type", "timestamp"} (ids ev-0, ev-1, ...)
   "missing_paths": ["..."],    # API routes that answer 404, e.g. "/attendance/events"
+  "employees": [{...}],        # extra employees (colleagues), merged into the default employee
   "autonomy": {"LEAVE": "AUTO_APPROVE_LOW_RISK"},
   "llm": {LLMAssessment} | {"error": "..."},
   "expected": {"action": "APPROVE" | "REJECT" | "ESCALATE" | "SKIP"}
@@ -69,6 +70,8 @@ class Scenario:
 
         for i, item in enumerate(self.raw.get("history", [])):
             store.add_request(_history_request(f"hist-{i}", item))
+        for extra in self.raw.get("employees", []):
+            store.add_employee(default_employee(extra["id"]) | extra)
         for i, row in enumerate(self.raw.get("schedules", [])):
             store.schedules.append({"id": f"sch-{i}", "employeeId": "emp-001", **row})
         for i, row in enumerate(self.raw.get("events", [])):

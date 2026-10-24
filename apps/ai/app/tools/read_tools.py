@@ -12,6 +12,7 @@ from ..schemas.requests import (
     PolicySet,
     RequestDetail,
     ScheduleEntry,
+    ShiftTemplate,
 )
 from .base import ApiClient, ApiError
 
@@ -49,6 +50,30 @@ async def get_schedules(api: ApiClient, employee_id: str, start: date, end: date
     """GET /shifts/schedules: assigned shifts of one employee between two days (inclusive)."""
     params = {"employeeId": employee_id, "from": start.isoformat(), "to": end.isoformat()}
     return [ScheduleEntry.model_validate(s) for s in await api.get("/shifts/schedules", params=params)]
+
+
+async def get_shift_templates(api: ApiClient) -> list[ShiftTemplate]:
+    return [ShiftTemplate.model_validate(t) for t in await api.get("/shifts/templates")]
+
+
+async def get_department_schedules(
+    api: ApiClient, department_id: str, start: date, end: date
+) -> list[ScheduleEntry] | None:
+    """GET /shifts/schedules?departmentId=: everyone's shifts in a department (not in apps/api yet).
+
+    None means "cannot count staff": the route is missing, or it ignored departmentId and
+    answered with rows of another department (apps/api today returns the caller's own rows).
+    """
+    params = {"departmentId": department_id, "from": start.isoformat(), "to": end.isoformat()}
+    try:
+        rows = [ScheduleEntry.model_validate(s) for s in await api.get("/shifts/schedules", params=params)]
+    except ApiError as exc:
+        if exc.status == 404:
+            return None
+        raise
+    if any(r.department_id != department_id for r in rows):
+        return None
+    return rows
 
 
 async def get_attendance_events(

@@ -121,11 +121,28 @@ class AttendanceExplanationPayload(ApiModel):
 
 
 class ShiftChangePayload(ApiModel):
-    schedule_id: str
-    new_date: date
+    """Spec: scheduleId + newDate + newShiftTemplateId. The web sends shiftDate + targetShiftId
+    (change the shift of that day to another template), which is accepted too."""
+
+    schedule_id: str | None = None
+    shift_date: CompanyDate | None = None  # Day of the shift to change, when there is no scheduleId
+    new_date: CompanyDate | None = None  # Defaults to the day of the current shift
     new_shift_template_id: str
     swap_with_employee_id: str | None = None
     reason: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_web_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "newShiftTemplateId" not in data and "targetShiftId" in data:
+            data = {**data, "newShiftTemplateId": data["targetShiftId"]}
+        return data
+
+    @model_validator(mode="after")
+    def _needs_current_shift(self) -> "ShiftChangePayload":
+        if not (self.schedule_id or self.shift_date):
+            raise ValueError("scheduleId or shiftDate is required")
+        return self
 
 
 # ---- Read models ----
@@ -164,6 +181,9 @@ class RequestDetail(ApiModel):
     def attendance_payload(self) -> AttendanceExplanationPayload:
         return AttendanceExplanationPayload.model_validate(self.payload)
 
+    def shift_change_payload(self) -> ShiftChangePayload:
+        return ShiftChangePayload.model_validate(self.payload)
+
 
 class EmployeeContext(ApiModel):
     """Employee fields the AI may use. Contact details are deliberately absent."""
@@ -178,12 +198,34 @@ class EmployeeContext(ApiModel):
 
 
 class ScheduleEntry(ApiModel):
-    """One row of GET /shifts/schedules (the embedded employee object is ignored)."""
+    """One row of GET /shifts/schedules. Only the department id is kept from the embedded employee."""
 
     id: str
+    employee_id: str | None = None
+    department_id: str | None = None
     date: CompanyDate
     shift_start: datetime
     shift_end: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _department_from_employee(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "departmentId" not in data:
+            department = ((data.get("employee") or {}).get("department") or {}).get("id")
+            data = {**data, "departmentId": department}
+        return data
+
+    def overlaps(self, start: datetime, end: datetime) -> bool:
+        return self.shift_start < end and self.shift_end > start
+
+
+class ShiftTemplate(ApiModel):
+    """One row of GET /shifts/templates."""
+
+    id: str
+    name: str
+    start_time: str  # "HH:mm"
+    end_time: str  # "HH:mm"; earlier than start_time for a night shift
 
 
 class AttendanceEvent(ApiModel):

@@ -34,6 +34,9 @@ class Settings:
     att_major_deviation_minutes: int  # ATTENDANCE.MAJOR_DEVIATION_MINUTES
     att_evidence_after_minutes: int  # ATTENDANCE.EVIDENCE_REQUIRED_AFTER_MINUTES
     att_max_auto_per_month: int  # ATTENDANCE.MAX_AUTO_PER_MONTH
+    shift_notice_hours: float  # SHIFT.NOTICE_HOURS
+    shift_min_rest_hours: float  # SHIFT.MIN_REST_HOURS
+    shift_min_staff: int  # SHIFT.MIN_STAFF_PER_SHIFT (others left on the old shift)
     company_timezone: str
 
 
@@ -61,5 +64,8 @@ def get_settings() -> Settings:
         att_major_deviation_minutes=int(_float("ATT_MAJOR_DEVIATION_MINUTES", 120)),
         att_evidence_after_minutes=int(_float("ATT_EVIDENCE_AFTER_MINUTES", 30)),
         att_max_auto_per_month=int(_float("ATT_MAX_AUTO_PER_MONTH", 3)),
+        shift_notice_hours=_float("SHIFT_NOTICE_HOURS", 48),
+        shift_min_rest_hours=_float("SHIFT_MIN_REST_HOURS", 12),
+        shift_min_staff=int(_float("SHIFT_MIN_STAFF", 2)),
         company_timezone=os.getenv("COMPANY_TIMEZONE", "Asia/Ho_Chi_Minh"),
     )

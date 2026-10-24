@@ -26,6 +26,7 @@ from .attendance_agent import build_attendance_prompt, gather_attendance_context
 from .base import BuiltPrompt
 from .leave_agent import build_leave_prompt, gather_leave_context
 from .overtime_agent import build_overtime_prompt, gather_overtime_context
+from .shift_agent import build_shift_prompt, gather_shift_context
 
 
 @dataclass
@@ -48,6 +49,7 @@ AGENTS: dict[RequestType, TypeAgent] = {
     RequestType.LEAVE: TypeAgent(gather_leave_context, lambda ctx, _settings: build_leave_prompt(ctx)),
     RequestType.OVERTIME: TypeAgent(gather_overtime_context, build_overtime_prompt),
     RequestType.ATTENDANCE_EXPLANATION: TypeAgent(gather_attendance_context, build_attendance_prompt),
+    RequestType.SHIFT_CHANGE: TypeAgent(gather_shift_context, build_shift_prompt),
 }
 
 
