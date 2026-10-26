@@ -16,7 +16,7 @@ from app.main import app
 from app.mock_api.fixtures import MockStore
 from app.schemas.common import RequestType
 from app.schemas.decision import LLMAssessment
-from app.tools.base import ApiClient
+from app.tools.base import ApiClient, ApiError
 
 pytestmark = pytest.mark.anyio
 
@@ -43,7 +43,9 @@ def llm() -> FakeLLM:
 
 @pytest.fixture
 async def client(api: ApiClient, llm: FakeLLM) -> AsyncIterator[httpx.AsyncClient]:
-    settings = replace(get_settings(), ai_inbound_token=TOKEN, ai_min_confidence=0.85, ai_max_auto_leave_days=3)
+    settings = replace(
+        get_settings(), ai_inbound_token=TOKEN, ai_service_token="svc", ai_min_confidence=0.85, ai_max_auto_leave_days=3
+    )
 
     async def deps() -> AsyncIterator[EvaluationDeps]:
         yield EvaluationDeps(api=api, llm=llm, settings=settings, today=date(2026, 10, 19))
@@ -240,7 +242,7 @@ async def test_unexpected_llm_client_error_escalates(client: httpx.AsyncClient, 
 async def test_unconfigured_llm_escalates_every_request(client: httpx.AsyncClient, store: MockStore, api: ApiClient) -> None:
     from app.llm import UnavailableLLM
 
-    settings = replace(get_settings(), ai_inbound_token=TOKEN)
+    settings = replace(get_settings(), ai_inbound_token=TOKEN, ai_service_token="svc")
 
     async def deps() -> AsyncIterator[EvaluationDeps]:
         yield EvaluationDeps(api=api, llm=UnavailableLLM("GEMINI_API_KEY is not set"), settings=settings, today=date(2026, 10, 19))
@@ -300,3 +302,94 @@ async def test_unreadable_request_is_escalated_by_id(client: httpx.AsyncClient, 
 async def test_non_ascii_token_is_401_not_500(client: httpx.AsyncClient) -> None:
     response = await client.post("/evaluate", json={"requestId": "req-demo-1"}, headers={"X-Service-Token": b"t\xe9st"})  # raw byte 0xE9, decoded by Starlette as latin-1
     assert response.status_code == 401
+
+
+async def test_uncertain_write_reports_the_current_status(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def landed_then_timed_out(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "APPROVED"  # The API applied it...
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # ...but the answer was lost
+
+    monkeypatch.setattr(api, "post", landed_then_timed_out)
+    body = (await evaluate(client)).json()
+    assert body["status"] == "APPROVED" and "applied" not in body
+    assert "có thể do chính lần ghi này" in body["reasons"][-1]
+
+
+async def test_logs_never_contain_request_data(client: httpx.AsyncClient, store: MockStore, caplog) -> None:
+    store.requests["req-demo-1"]["type"] = "gọi em 0912345678"  # Invalid, and personal data in the value
+    with caplog.at_level("ERROR"):
+        await evaluate(client)
+    assert "ValidationError on type" in caplog.text
+    assert "0912345678" not in caplog.text
+
+
+# ---- write outcomes (follow-up review) ----
+async def test_lost_write_is_not_resent_and_stays_with_the_manager(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    calls = []
+
+    async def lost(path: str, json: dict) -> object:
+        calls.append(path)
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")  # Request still PENDING
+
+    monkeypatch.setattr(api, "post", lost)
+    body = (await evaluate(client)).json()
+    assert len(calls) == 1  # Never resent: no double decision without API-side idempotency
+    assert body["status"] == "PENDING" and "applied" not in body
+    assert body["reasons"][-1] == "Không rõ kết quả ghi (WRITE_OUTCOME_UNKNOWN); đơn vẫn chờ quản lý duyệt"
+
+
+async def test_proxy_5xx_on_a_write_reads_the_request_back(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def applied_then_502(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "APPROVED"
+        raise ApiError(502, "HTTP_502", "bad gateway")
+
+    monkeypatch.setattr(api, "post", applied_then_502)
+    body = (await evaluate(client)).json()
+    assert body["status"] == "APPROVED" and "có thể do chính lần ghi này" in body["reasons"][-1]
+
+
+async def test_fails_closed_when_service_token_not_configured(client: httpx.AsyncClient) -> None:
+    app.dependency_overrides[get_settings] = lambda: replace(get_settings(), ai_inbound_token=TOKEN, ai_service_token="")
+    response = await evaluate(client)
+    assert response.status_code == 503 and "AI_SERVICE_TOKEN" in response.json()["detail"]
+
+
+async def test_api_turning_the_decision_into_an_escalation_is_reported(
+    client: httpx.AsyncClient, store: MockStore, api: ApiClient, monkeypatch
+) -> None:
+    async def escalated_then_timed_out(path: str, json: dict) -> object:
+        store.requests["req-demo-1"]["status"] = "ESCALATED"
+        raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", "read timeout")
+
+    monkeypatch.setattr(api, "post", escalated_then_timed_out)
+    body = (await evaluate(client)).json()
+    assert (body["status"], body["applied"]) == ("ESCALATED", False)
+    assert body["reasons"][-1] == "API đã chuyển đơn cho người duyệt"
+
+
+async def test_a_refused_write_is_plainly_not_applied(client: httpx.AsyncClient, api: ApiClient, monkeypatch) -> None:
+    async def refused(path: str, json: dict) -> object:
+        raise ApiError(400, "VALIDATION_FAILED", "trace too big")
+
+    monkeypatch.setattr(api, "post", refused)
+    body = (await evaluate(client)).json()
+    assert body["applied"] is False and body["reasons"][-1] == "API không nhận kết quả: VALIDATION_FAILED"
+
+
+async def test_unexpected_errors_log_where_but_not_what(client: httpx.AsyncClient, monkeypatch, caplog) -> None:
+    import app.agents.supervisor as supervisor
+
+    def broken(*args, **kwargs):
+        raise TypeError("secret 0912345678")
+
+    monkeypatch.setattr(supervisor, "apply_autonomy", broken)
+    with caplog.at_level("ERROR"):
+        await evaluate(client)
+    assert "TypeError at test_evaluate.py:" in caplog.text
+    assert "0912345678" not in caplog.text

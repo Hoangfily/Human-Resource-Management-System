@@ -56,8 +56,13 @@ class ShiftContext:
     def new_date(self) -> date | None:
         return self.payload.new_date or self.base_date
 
+    def schedules_on(self, day: date) -> list[ScheduleEntry]:
+        """The employee's other assigned shifts that day (the one being changed excluded)."""
+        current_id = self.current.id if self.current else None
+        return [s for s in self.own_schedules if s.date == day and s.id != current_id]
+
     def schedule_on(self, day: date) -> ScheduleEntry | None:
-        return next((s for s in self.own_schedules if s.date == day and s.id != (self.current.id if self.current else None)), None)
+        return next(iter(self.schedules_on(day)), None)
 
     def old_window(self) -> ShiftWindow | None:
         if self.base_date is None:
@@ -74,11 +79,18 @@ class ShiftContext:
             end += timedelta(days=1)  # Night shift
         return ShiftWindow(start, end, "template")
 
-    def neighbour(self, day: date) -> ShiftWindow | None:
-        """The shift on a neighbouring day once the change is made."""
+    def neighbours(self, day: date) -> list[ShiftWindow]:
+        """Every shift on a neighbouring day once the change is made (all rows, else the default)."""
         if day == self.base_date and day != self.new_date:
-            return None  # That shift is the one being moved away
-        return shift_for_day(day, self.schedule_on(day), self.employee)
+            return []  # That shift is the one being moved away
+        rows = self.schedules_on(day)
+        if rows:
+            return [w for r in rows if (w := shift_for_day(day, r, self.employee))]
+        default = shift_for_day(day, None, self.employee)
+        return [default] if default else []
+
+    def neighbour(self, day: date) -> ShiftWindow | None:
+        return next(iter(self.neighbours(day)), None)
 
 
 async def gather_shift_context(api: ApiClient, request: RequestDetail, today: date) -> ShiftContext:
@@ -100,7 +112,10 @@ async def gather_shift_context(api: ApiClient, request: RequestDetail, today: da
 
     department = None
     if base_date and employee.department_id:
-        department = await get_department_schedules(api, employee.department_id, base_date, base_date)
+        # ±1 day for the same date-storage reason; rows are counted by overlap with the old shift.
+        department = await get_department_schedules(
+            api, employee.department_id, base_date - timedelta(days=1), base_date + timedelta(days=1)
+        )
 
     history = (await list_requests(api, request.employee_id, type=RequestType.SHIFT_CHANGE, since=today - timedelta(days=HISTORY_DAYS))).without(request.id)
     policies = await get_policies(api)
@@ -130,19 +145,33 @@ def check_limits(ctx: ShiftContext, settings: Settings) -> list[str]:
 
     if old and (old.start, old.end) == (new.start, new.end):
         reasons.append("Ca mới trùng với ca hiện tại")
-    other = ctx.schedule_on(new.start.date())
-    if other and other.overlaps(new.start, new.end):
-        reasons.append(f"Ca mới trùng với ca khác đã phân ngày {new.start:%d/%m}")
+    same_day_hours = 0.0
+    for other in ctx.schedules_on(new.start.date()):
+        if other.overlaps(new.start, new.end):
+            reasons.append(f"Ca mới trùng với ca khác đã phân ngày {new.start:%d/%m}")
+            continue
+        # Back-to-back shifts on the same day: the neighbour-day checks below never see this one.
+        tz = company_tz()
+        o_start, o_end = other.shift_start.astimezone(tz), other.shift_end.astimezone(tz)
+        rest = new.start - o_end if o_end <= new.start else o_start - new.end
+        if rest < timedelta(hours=settings.shift_min_rest_hours):
+            reasons.append(
+                f"Chỉ nghỉ {_hours(rest):g} giờ với ca khác cùng ngày ({o_start:%H:%M}–{o_end:%H:%M}), "
+                f"cần tối thiểu {settings.shift_min_rest_hours:g} giờ"
+            )
+        same_day_hours += _hours(o_end - o_start)
+    if same_day_hours:
+        total = new.hours() + same_day_hours
+        if total > settings.ot_max_total_hours_per_day:
+            reasons.append(f"Tổng giờ làm trong ngày {total:g} giờ vượt {settings.ot_max_total_hours_per_day:g} giờ")
 
     for day in (new.start.date() - timedelta(days=1), new.start.date() + timedelta(days=1)):
-        shift = ctx.neighbour(day)
-        if shift is None:
-            continue
-        rest = new.start - shift.end if day < new.start.date() else shift.start - new.end
-        if rest < timedelta(0):  # e.g. the previous night shift still runs when the new one starts
-            reasons.append(f"Ca mới chồng lên ca ngày {day:%d/%m} ({shift.start:%H:%M}–{shift.end:%H:%M})")
-        elif rest < timedelta(hours=settings.shift_min_rest_hours):
-            reasons.append(f"Chỉ nghỉ {_hours(rest):g} giờ giữa hai ca, cần tối thiểu {settings.shift_min_rest_hours:g} giờ")
+        for shift in ctx.neighbours(day):
+            rest = new.start - shift.end if day < new.start.date() else shift.start - new.end
+            if rest < timedelta(0):  # e.g. the previous night shift still runs when the new one starts
+                reasons.append(f"Ca mới chồng lên ca ngày {day:%d/%m} ({shift.start:%H:%M}–{shift.end:%H:%M})")
+            elif rest < timedelta(hours=settings.shift_min_rest_hours):
+                reasons.append(f"Chỉ nghỉ {_hours(rest):g} giờ giữa hai ca, cần tối thiểu {settings.shift_min_rest_hours:g} giờ")
 
     registered = (ctx.request.submitted_at or ctx.request.created_at).astimezone(company_tz())
     earliest = min(w.start for w in (old, new) if w)

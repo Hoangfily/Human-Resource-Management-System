@@ -185,8 +185,8 @@ async def test_clean_demo_leave_has_no_limit_findings(api: ApiClient) -> None:
 
 async def test_overdraft_is_caught_from_unclamped_balance(api: ApiClient, store: MockStore) -> None:
     annual = next(b for b in store.balances["emp-001"] if b["leaveTypeCode"] == "ANNUAL")
-    annual |= {"usedDays": 10, "pendingDays": 3, "availableDays": 0}  # API clamps; 12 - 10 - 3 = -1
-    assert "Vượt quỹ phép ANNUAL: thiếu 1 ngày" in await limits_for(api)
+    annual |= {"usedDays": 10, "pendingDays": 3, "availableDays": 0}  # API clamps at 0
+    assert "Vượt quỹ phép ANNUAL: thiếu 3 ngày" in await limits_for(api)  # 12 - 10 - 3 - 2 (this request)
 
 
 async def test_funded_type_without_balance_and_unknown_type(api: ApiClient, store: MockStore) -> None:
@@ -249,7 +249,7 @@ async def test_under_reserved_days_count_against_the_balance(api: ApiClient, sto
     annual |= {"usedDays": 11, "pendingDays": 1}
     demo_payload(store).update({"startDate": "2026-11-02", "endDate": "2026-11-04"})
     store.requests["req-demo-1"]["computed"] = {"daysRequested": 1}
-    assert "Vượt quỹ phép ANNUAL: thiếu 2 ngày" in await limits_for(api)
+    assert "Vượt quỹ phép ANNUAL: thiếu 3 ngày" in await limits_for(api)  # 12 - 11 - 1 - 3
 
 
 async def test_balance_of_another_year_is_not_used(api: ApiClient, store: MockStore) -> None:
@@ -268,3 +268,22 @@ def test_half_day_must_be_a_single_day() -> None:
     for dates in ({"startDate": "2026-10-26", "endDate": "2026-10-30"}, {"startDate": "2026-10-30", "endDate": "2026-10-29"}):
         with pytest.raises(ValidationError):
             LeavePayload.model_validate({**base, **dates})
+
+
+async def test_next_year_leave_counts_fully_against_next_year_balance(api: ApiClient, store: MockStore) -> None:
+    # apps/api reserved these 2 days in the 2026 row (year hard-coded), not in 2027.
+    store.balances["emp-001"].append(
+        {"leaveTypeId": "lt-annual", "leaveTypeCode": "ANNUAL", "year": 2027, "totalDays": 1, "usedDays": 0,
+         "pendingDays": 0, "availableDays": 1}
+    )
+    demo_payload(store).update({"startDate": "2027-01-05", "endDate": "2027-01-06"})
+    assert "Vượt quỹ phép ANNUAL: thiếu 1 ngày" in await limits_for(api)
+
+
+async def test_leave_type_added_by_hr_is_unknown(api: ApiClient, store: MockStore) -> None:
+    store.balances["emp-001"].append(
+        {"leaveTypeId": "lt-wed", "leaveTypeCode": "WEDDING", "year": 2026, "totalDays": 0, "usedDays": 0,
+         "pendingDays": 0, "availableDays": 0}
+    )
+    demo_payload(store).update({"leaveTypeId": "lt-wed", "leaveType": "WEDDING"})
+    assert "Không xác định được loại nghỉ" in await limits_for(api)

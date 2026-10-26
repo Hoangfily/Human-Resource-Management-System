@@ -74,6 +74,11 @@ class ApiClient:
                 response = await self._http.request(method, path, **kwargs)
             except httpx.TransportError as exc:  # Includes timeouts
                 self._record(method, path, None, started)
+                # A write that may have reached the API (read timeout, dropped connection) is not
+                # replayed: the API may already have applied it. Only "never sent" errors are retried.
+                never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout))
+                if method != "GET" and not never_sent:
+                    raise ApiError(0, "WRITE_OUTCOME_UNKNOWN", str(exc)) from exc
                 if attempt < self.max_retries:
                     attempt += 1
                     await asyncio.sleep(self.backoff_s * 2 ** (attempt - 1))
@@ -81,7 +86,10 @@ class ApiClient:
                 raise ApiError(0, "API_UNREACHABLE", str(exc)) from exc
 
             self._record(method, path, response.status_code, started)
-            if response.status_code in RETRYABLE_STATUS and attempt < self.max_retries:
+            # A proxy can answer 502/503/504 after the API applied a write: writes are never replayed
+            # (the supervisor reads the request back and reports what it shows).
+            retryable = RETRYABLE_STATUS if method == "GET" else set()
+            if response.status_code in retryable and attempt < self.max_retries:
                 attempt += 1
                 await asyncio.sleep(self.backoff_s * 2 ** (attempt - 1))
                 continue

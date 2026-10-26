@@ -222,3 +222,32 @@ async def test_one_unreadable_history_row_is_skipped(api: ApiClient, monkeypatch
 
     monkeypatch.setattr(api, "get", rows)
     assert [r.id for r in await list_requests(api, "emp-001")] == ["ok"]
+
+
+async def test_writes_are_not_replayed_after_a_read_timeout() -> None:
+    calls = {"GET": 0, "POST": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls[request.method] += 1
+        raise httpx.ReadTimeout("no answer", request=request)
+
+    async with ApiClient("http://x", "t", transport=httpx.MockTransport(handler), backoff_s=0) as client:
+        with pytest.raises(ApiError) as exc:
+            await client.post("/requests/r/ai-decision", json={})
+        assert exc.value.code == "WRITE_OUTCOME_UNKNOWN"
+        with pytest.raises(ApiError):
+            await client.get("/requests/r")
+    assert calls == {"POST": 1, "GET": 4}  # Reads are still retried
+
+
+async def test_writes_are_not_replayed_on_5xx() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(503, json={"code": "UNAVAILABLE"})
+
+    async with ApiClient("http://x", "t", transport=httpx.MockTransport(handler), backoff_s=0) as client:
+        with pytest.raises(ApiError):
+            await client.post("/requests/r/escalate", json={})
+    assert calls == ["POST"]

@@ -183,3 +183,12 @@ async def test_unreadable_old_explanations_escalate(api: ApiClient, store: MockS
     bad = att_request("old", {"date": "2026-10-07", "issue": "NOT_AN_ISSUE"}, status="APPROVED", createdAt="2026-10-07T03:00:00Z")
     store.add_request(bad)
     assert "Có 1 đơn giải trình cũ không đọc được, không đếm đủ số đơn trong tháng" in check_limits(await context(api), SETTINGS)
+
+
+# ---- follow-ups after PR #2 ----
+async def test_absent_day_cannot_be_rebuilt_from_two_explanations(api: ApiClient, store: MockStore) -> None:
+    store.add_request(att_request("in", {"date": FRI, "issue": "MISSING_CLOCK_IN", "requestedTime": "08:30"}))
+    store.add_request(att_request("out", {"date": FRI, "issue": "MISSING_CLOCK_OUT", "requestedTime": "17:30"}))
+    # No clock events at all that day
+    assert "Ngày này không có giờ ra nào, không đủ căn cứ là đã đi làm" in check_limits(await context(api, "in"), SETTINGS)
+    assert "Ngày này không có giờ vào nào, không đủ căn cứ là đã đi làm" in check_limits(await context(api, "out"), SETTINGS)

@@ -49,6 +49,16 @@ services:
     environment:
       PORT: 8000
       API_BASE_URL: http://api:3000
+      # Both tokens must also be given to the api service (docs/06, not done there yet).
+      # If either is empty, /evaluate answers 503 (fail closed).
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+      AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:-}
+      # Without a key the service runs "degraded": every request is escalated to a human.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_MODEL: ${LLM_MODEL:-gemini-3.8-flash}
+      LLM_FALLBACK_MODELS: ${LLM_FALLBACK_MODELS:-gemini-3.5-flash}
+      COMPANY_TIMEZONE: ${COMPANY_TIMEZONE:-Asia/Ho_Chi_Minh}
     ports:
       - "${AI_PORT:-8000}:8000"
 

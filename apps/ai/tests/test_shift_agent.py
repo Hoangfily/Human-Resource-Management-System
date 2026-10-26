@@ -122,3 +122,32 @@ async def test_new_shift_overlapping_previous_night_shift_is_flagged(api: ApiCli
     with_team(store, FRI, "emp-201", "emp-202")
     reasons = check_limits(await context(api), SETTINGS)
     assert any("Ca mới chồng lên ca ngày 22/10 (22:00–06:00)" in r for r in reasons), reasons
+
+
+async def test_back_to_back_shift_on_the_same_new_day(api: ApiClient, store: MockStore) -> None:
+    row(store, "emp-001", FRI, f"{THU}T23:00:00.000Z", f"{FRI}T07:00:00.000Z")  # Fri 06:00-14:00 already assigned
+    store.add_request(shift_request("s1", {"shiftDate": THU, "newDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, THU, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert any("Chỉ nghỉ 0 giờ với ca khác cùng ngày (06:00–14:00)" in r for r in reasons), reasons
+    assert any("Tổng giờ làm trong ngày 16 giờ" in r for r in reasons)
+
+
+async def test_every_other_shift_on_the_new_day_is_checked(api: ApiClient, store: MockStore) -> None:
+    row(store, "emp-001", FRI, f"{THU}T22:00:00.000Z", f"{FRI}T01:00:00.000Z")  # Fri 05:00-08:00
+    row(store, "emp-001", FRI, f"{FRI}T14:00:00.000Z", f"{FRI}T16:00:00.000Z")  # Fri 21:00-23:00
+    store.add_request(shift_request("s1", {"shiftDate": THU, "newDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, THU, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert "Ca mới trùng với ca khác đã phân ngày 23/10" in reasons  # The second one (21:00) overlaps 14:00-22:00
+
+
+async def test_every_shift_on_a_neighbouring_day_is_checked(api: ApiClient, store: MockStore) -> None:
+    # Saturday has two rows; the second (05:00) leaves only 7h after the new Friday night end (22:00).
+    sat = "2026-10-24"
+    row(store, "emp-001", sat, f"{sat}T07:00:00.000Z", f"{sat}T10:00:00.000Z")  # Sat 14:00-17:00: fine
+    row(store, "emp-001", sat, f"{FRI}T22:00:00.000Z", f"{sat}T01:00:00.000Z")  # Sat 05:00-08:00: too close
+    store.add_request(shift_request("s1", {"shiftDate": FRI, "newShiftTemplateId": "tpl-afternoon"}))
+    with_team(store, FRI, "emp-201", "emp-202")
+    reasons = check_limits(await context(api), SETTINGS)
+    assert any("Chỉ nghỉ 7 giờ giữa hai ca" in r for r in reasons), reasons

@@ -48,9 +48,9 @@ class LeaveContext:
 
     def leave_type_code(self, payload: LeavePayload) -> str:
         balance = self._balance_for(payload)
-        if balance:
-            return balance.leave_type_code
-        return payload.leave_type if payload.leave_type in KNOWN_LEAVE_TYPES else "UNKNOWN"
+        code = balance.leave_type_code if balance else payload.leave_type
+        # A type HR added later (e.g. WEDDING) has no rules here yet: UNKNOWN makes it escalate.
+        return code if code in KNOWN_LEAVE_TYPES else "UNKNOWN"
 
     def balance(self) -> LeaveBalance | None:
         return self._balance_for(self.payload)
@@ -80,7 +80,7 @@ def working_days_between(after: date, before: date) -> int:
 
 
 def reserved_days(ctx: LeaveContext) -> float:
-    """What apps/api put in pendingDays for this request (it copies the client's daysCount)."""
+    """The API's day count for this request (today a copy of the client's daysCount)."""
     try:
         return float(ctx.request.computed.get("daysRequested") or 0)
     except (TypeError, ValueError):
@@ -142,9 +142,12 @@ def check_limits(ctx: LeaveContext, settings: Settings) -> list[str]:
         if balance is None or balance.year != p.start_date.year:
             reasons.append(f"Không có quỹ phép {code} năm {p.start_date.year} để đối chiếu")
         else:
-            # apps/api already reserved this request in pendingDays (using the client's count) and
-            # clamps availableDays at 0: use the raw fields and add what it under-reserved.
-            remaining = balance.total_days - balance.used_days - balance.pending_days - max(0.0, days - reserved_days(ctx))
+            # Whether apps/api already counted this request in pendingDays cannot be known: it
+            # reserves the client's daysCount, only into a hard-coded 2026 row, and only when
+            # leaveTypeId is set. So the whole request is subtracted (raw fields; availableDays is
+            # clamped at 0). When the API did reserve it, this counts it twice: a tight balance then
+            # escalates instead of auto-approving, the safe side.
+            remaining = balance.total_days - balance.used_days - balance.pending_days - days
             if remaining < 0:
                 reasons.append(f"Vượt quỹ phép {code}: thiếu {-remaining:g} ngày")
 

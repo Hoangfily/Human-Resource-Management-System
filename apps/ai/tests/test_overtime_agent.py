@@ -169,3 +169,23 @@ async def test_rows_the_api_returned_unparsed_also_escalate(api: ApiClient, stor
     ctx = await context(api, store)
     ctx = replace(ctx, history=RequestHistory(list(ctx.history), skipped=2))
     assert "Có 2 đơn OT cũ không đọc được, tổng giờ tháng/năm có thể bị thiếu" in check_limits(ctx, SETTINGS)
+
+
+async def test_overnight_default_shift_is_not_negative(api: ApiClient, store: MockStore) -> None:
+    store.employees["emp-001"]["shiftTime"] = "22:00 - 06:00"
+    store.add_request(ot_request("ot-1", "2026-10-21", "20:00", "23:30"))
+    ctx = await context(api, store)
+    window = shift_window(ctx)
+    assert window and window.hours() == 8
+    assert any("trùng với ca làm (22:00–06:00)" in r for r in check_limits(ctx, SETTINGS))
+
+
+async def test_schedule_stored_at_local_midnight_is_found(api: ApiClient, store: MockStore) -> None:
+    # apps/api on a Vietnam-time server stores the 24/10 schedule as 23/10 17:00 UTC.
+    store.schedules.append(
+        {"id": "s1", "employeeId": "emp-001", "date": "2026-10-23T17:00:00.000Z",
+         "shiftStart": "2026-10-24T01:30:00.000Z", "shiftEnd": "2026-10-24T10:30:00.000Z"}
+    )
+    store.add_request(ot_request("ot-1", "2026-10-24", "16:00", "19:00"))  # Saturday, overlaps the assigned shift
+    reasons = check_limits(await context(api, store), SETTINGS)
+    assert any("trùng với ca làm (08:30–17:30)" in r for r in reasons), reasons

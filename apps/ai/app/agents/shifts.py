@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from ..schemas.requests import EmployeeContext, ScheduleEntry, company_tz
 
@@ -33,4 +33,6 @@ def shift_for_day(day: date, schedule: ScheduleEntry | None, employee: EmployeeC
     if not match:
         return None
     start, end = (datetime.combine(day, datetime.strptime(t, "%H:%M").time(), tz) for t in match.groups())
+    if end <= start:
+        end += timedelta(days=1)  # Overnight default shift, e.g. "22:00 - 06:00"
     return ShiftWindow(start, end, "defaultShift")
