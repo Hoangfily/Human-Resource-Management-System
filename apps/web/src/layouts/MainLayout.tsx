@@ -1,44 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Layout,
-  Menu,
-  Button,
   Avatar,
   Dropdown,
   Space,
   Typography,
   Badge,
-  Tag,
-  Breadcrumb,
   Tooltip,
   App as AntdApp,
 } from 'antd';
 import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  DashboardOutlined,
-  FileTextOutlined,
-  CalendarOutlined,
+  HomeOutlined,
+  CommentOutlined,
+  PlusSquareOutlined,
   ClockCircleOutlined,
-  CheckSquareOutlined,
-  SettingOutlined,
-  RobotOutlined,
-  LogoutOutlined,
+  CalendarOutlined,
+  InboxOutlined,
+  UnorderedListOutlined,
+  ControlOutlined,
+  TeamOutlined,
   UserOutlined,
-  SafetyCertificateOutlined,
-  ThunderboltOutlined,
-  SlidersOutlined,
-  ApartmentOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import { UserRole } from '@hr-agent/shared';
 import { useAuth } from '../features/auth/AuthContext';
 import { RoleTag } from '../components/common';
-import { isMockEnabled, setMockEnabled } from '../lib/mock-data';
 import apiClient from '../lib/api-client';
 import { RequestItem } from '../types';
 
-const { Header, Sider, Content, Footer } = Layout;
+const { Sider, Content } = Layout;
 const { Text } = Typography;
 
 export const MainLayout: React.FC = () => {
@@ -47,133 +38,62 @@ export const MainLayout: React.FC = () => {
   const location = useLocation();
   const { message } = AntdApp.useApp();
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [mockActive, setMockActive] = useState(isMockEnabled());
-  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
+  const [pendingCount, setPendingCount] = useState<number>(0);
 
   const isManagerOrAdmin =
     user?.role === UserRole.Manager ||
     user?.role === UserRole.HrAdmin ||
     user?.role === UserRole.Admin;
 
-  const isHrOrAdmin =
-    user?.role === UserRole.HrAdmin || user?.role === UserRole.Admin;
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (isManagerOrAdmin) {
       apiClient
         .get<RequestItem[]>('/requests/approvals/queue?tab=pending')
         .then((res) => {
           const data = res as unknown as RequestItem[];
-          if (Array.isArray(data)) {
-            setPendingApprovalsCount(data.length);
+          if (Array.isArray(data) && data.length > 0) {
+            setPendingCount(data.length);
           }
         })
         .catch(() => {});
     }
   }, [isManagerOrAdmin, location.pathname]);
 
-  const handleToggleMock = () => {
-    const next = !mockActive;
-    setMockEnabled(next);
-    setMockActive(next);
-    message.info(
-      next
-        ? 'Đã BẬT chế độ Mock Data.'
-        : 'Đã TẮT chế độ Mock Data. Hệ thống sẽ kết nối trực tiếp đến Backend.'
-    );
-  };
-
   const handleLogout = () => {
     logout();
-    message.success('Đã đăng xuất khỏi hệ thống.');
+    message.success('Đã đăng xuất khỏi hệ thống an toàn.');
     navigate('/login', { replace: true });
   };
 
-  // Xây dựng danh sách menu theo quyền hạn (Dark Sidebar phong cách thiết kế)
-  const menuItems = [
-    {
-      key: '/dashboard',
-      icon: <DashboardOutlined />,
-      label: <Link to="/dashboard">Tổng quan</Link>,
-    },
-    {
-      key: '/requests',
-      icon: <FileTextOutlined />,
-      label: <Link to="/requests">Quản lý Đơn từ</Link>,
-    },
-    {
-      key: '/attendance',
-      icon: <CalendarOutlined />,
-      label: <Link to="/attendance">Chấm công</Link>,
-    },
-    {
-      key: '/shifts',
-      icon: <ClockCircleOutlined />,
-      label: <Link to="/shifts">Lịch ca làm</Link>,
-    },
-    ...(isManagerOrAdmin
-      ? [
-          {
-            key: '/approvals',
-            icon: <CheckSquareOutlined />,
-            label: (
-              <Link to="/approvals" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Phê duyệt đơn</span>
-                <Badge count={pendingApprovalsCount} size="small" style={{ backgroundColor: '#10b981' }} />
-              </Link>
-            ),
-          },
-        ]
-      : []),
-    {
-      key: '/agent-chat',
-      icon: <RobotOutlined style={{ color: '#34d399' }} />,
-      label: (
-        <Link to="/agent-chat">
-          <span style={{ fontWeight: 600, color: '#34d399' }}>Trợ lý AI (HR Chat)</span>
-        </Link>
-      ),
-    },
-    ...(isHrOrAdmin
-      ? [
-          {
-            key: 'group-admin',
-            type: 'group' as const,
-            label: <span style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase' }}>Hệ thống & HR</span>,
-            children: [
-              {
-                key: '/admin',
-                icon: <ApartmentOutlined />,
-                label: <Link to="/admin">Cơ cấu & Quy định</Link>,
-              },
-              {
-                key: '/agent-settings',
-                icon: <SlidersOutlined />,
-                label: <Link to="/agent-settings">Cấu hình Agent</Link>,
-              },
-              {
-                key: '/agent-trace',
-                icon: <SettingOutlined />,
-                label: <Link to="/agent-trace">Nhật ký AI (Trace)</Link>,
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
+  const navItemStyle = (path: string) => {
+    const isActive = location.pathname === path;
+    return {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '9px 16px',
+      borderRadius: '8px',
+      color: isActive ? '#ffffff' : '#9ca3af',
+      backgroundColor: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+      fontWeight: isActive ? 600 : 400,
+      fontSize: '14px',
+      textDecoration: 'none',
+      marginBottom: '3px',
+      transition: 'all 0.15s ease',
+      cursor: 'pointer',
+    };
+  };
 
-  // User Dropdown Menu
   const userMenuItems = {
     items: [
       {
         key: 'profile-info',
         disabled: true,
         label: (
-          <div style={{ padding: '6px 4px', minWidth: 170 }}>
-            <div style={{ fontWeight: 600, color: '#0f172a' }}>{user?.fullName}</div>
+          <div style={{ padding: '8px 4px', minWidth: 200 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{user?.fullName}</div>
             <div style={{ fontSize: 12, color: '#64748b' }}>{user?.email}</div>
-            <div style={{ marginTop: 6 }}>
+            <div style={{ marginTop: 8 }}>
               {user && <RoleTag role={user.role} />}
             </div>
           </div>
@@ -181,8 +101,8 @@ export const MainLayout: React.FC = () => {
       },
       { type: 'divider' as const },
       {
-        key: 'switch-role',
-        label: 'Đổi tài khoản demo',
+        key: 'switch-account',
+        label: 'Đổi tài khoản đăng nhập',
         icon: <UserOutlined />,
         onClick: () => navigate('/login'),
       },
@@ -196,237 +116,198 @@ export const MainLayout: React.FC = () => {
     ],
   };
 
-  const pathSnippets = location.pathname.split('/').filter((i) => i);
-  const breadcrumbNameMap: Record<string, string> = {
-    dashboard: 'Tổng quan',
-    requests: 'Quản lý Đơn từ',
-    attendance: 'Chấm công',
-    shifts: 'Lịch ca làm',
-    approvals: 'Phê duyệt đơn',
-    'agent-chat': 'Trợ lý AI (HR Chat)',
-    admin: 'Cơ cấu & Quy định',
-    'agent-settings': 'Cấu hình Agent',
-    'agent-trace': 'Nhật ký AI (Trace)',
-  };
-
-  const breadcrumbItems = [
-    { title: <Link to="/dashboard">Trang chủ</Link> },
-    ...pathSnippets.map((snippet, index) => {
-      const url = `/${pathSnippets.slice(0, index + 1).join('/')}`;
-      const isLast = index === pathSnippets.length - 1;
-      return {
-        title: isLast ? (
-          breadcrumbNameMap[snippet] || snippet
-        ) : (
-          <Link to={url}>{breadcrumbNameMap[snippet] || snippet}</Link>
-        ),
-      };
-    }),
-  ];
-
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      {/* Dark Sidebar Navigation */}
+    <Layout style={{ minHeight: '100vh', background: '#fcfbf7' }}>
+      {/* Matte Dark Charcoal Sidebar from Screenshot */}
       <Sider
         trigger={null}
-        collapsible
-        collapsed={collapsed}
-        width={250}
-        theme="dark"
+        width={230}
         style={{
-          background: '#0f172a',
-          boxShadow: '2px 0 12px rgba(0, 0, 0, 0.15)',
-          zIndex: 10,
+          background: '#161615',
+          height: '100vh',
+          position: 'sticky',
+          top: 0,
+          left: 0,
           display: 'flex',
           flexDirection: 'column',
+          borderRight: '1px solid #262624',
+          zIndex: 50,
         }}
       >
-        {/* Logo Section */}
-        <div
-          style={{
-            height: 68,
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 20px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-            gap: 12,
-          }}
-        >
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '18px 12px' }}>
+          {/* Logo Section: [N] Nhân Sự+ */}
           <div
+            onClick={() => navigate('/dashboard')}
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 20,
-              flexShrink: 0,
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+              gap: 10,
+              padding: '6px 12px 24px',
+              cursor: 'pointer',
             }}
           >
-            <SafetyCertificateOutlined />
-          </div>
-          {!collapsed && (
-            <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: '#f8fafc', letterSpacing: '0.3px' }}>
-                HR Agent
-              </div>
-              <div style={{ fontSize: 11, color: '#34d399', fontWeight: 500 }}>
-                Hệ thống Nhân sự AI
-              </div>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: '#5eead4',
+                color: '#042f2e',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 800,
+                fontSize: 16,
+                letterSpacing: '-0.5px',
+                flexShrink: 0,
+              }}
+            >
+              N
             </div>
-          )}
-        </div>
-
-        {/* Menu Items */}
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          style={{
-            background: 'transparent',
-            borderRight: 0,
-            marginTop: 14,
-          }}
-        />
-
-        {/* Bottom User Card in Sidebar (như thiết kế bản gốc) */}
-        {!collapsed && user && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 16,
-              left: 12,
-              right: 12,
-              padding: '12px 14px',
-              borderRadius: 10,
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Space size={10} style={{ overflow: 'hidden' }}>
-              <Avatar
-                style={{ backgroundColor: '#059669', flexShrink: 0 }}
-                icon={<UserOutlined />}
-              >
-                {user.fullName.charAt(0)}
-              </Avatar>
-              <div style={{ overflow: 'hidden' }}>
-                <div
-                  style={{
-                    color: '#f1f5f9',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    textOverflow: 'ellipsis',
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {user.fullName}
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 11 }}>{user.departmentName}</div>
-              </div>
-            </Space>
-            <Tooltip title="Đăng xuất">
-              <Button
-                type="text"
-                size="small"
-                icon={<LogoutOutlined style={{ color: '#94a3b8' }} />}
-                onClick={handleLogout}
-              />
-            </Tooltip>
+            <div style={{ fontWeight: 700, fontSize: 18, color: '#fcfbf7', letterSpacing: '-0.2px' }}>
+              Nhân Sự<span style={{ color: '#5eead4' }}>+</span>
+            </div>
           </div>
-        )}
-      </Sider>
 
-      {/* Main Body */}
-      <Layout style={{ background: '#f8fafc' }}>
-        {/* Header */}
-        <Header
-          style={{
-            padding: '0 24px',
-            background: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid #e2e8f0',
-            position: 'sticky',
-            top: 0,
-            zIndex: 9,
-            height: 64,
-          }}
-        >
-          <Space size={16}>
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              style={{ fontSize: 16, width: 36, height: 36 }}
-            />
-            <Breadcrumb items={breadcrumbItems} />
-          </Space>
+          {/* Navigation Groups */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* Nhóm CÁ NHÂN */}
+            <div style={{ padding: '0 12px 6px', fontSize: 11, fontWeight: 700, color: '#6b7280', letterSpacing: '0.8px' }}>
+              CÁ NHÂN
+            </div>
+            <Link to="/dashboard" style={navItemStyle('/dashboard')}>
+              <Space size={12}>
+                <HomeOutlined style={{ fontSize: 16 }} />
+                <span>Tổng quan</span>
+              </Space>
+            </Link>
+            <Link to="/agent-chat" style={navItemStyle('/agent-chat')}>
+              <Space size={12}>
+                <CommentOutlined style={{ fontSize: 16 }} />
+                <span>Trợ lý HR</span>
+              </Space>
+            </Link>
+            <Link to="/requests" style={navItemStyle('/requests')}>
+              <Space size={12}>
+                <PlusSquareOutlined style={{ fontSize: 16 }} />
+                <span>Tạo đơn</span>
+              </Space>
+            </Link>
+            <Link to="/attendance" style={navItemStyle('/attendance')}>
+              <Space size={12}>
+                <ClockCircleOutlined style={{ fontSize: 16 }} />
+                <span>Chấm công</span>
+              </Space>
+            </Link>
+            <Link to="/shifts" style={navItemStyle('/shifts')}>
+              <Space size={12}>
+                <CalendarOutlined style={{ fontSize: 16 }} />
+                <span>Lịch ca</span>
+              </Space>
+            </Link>
 
-          <Space size={16} align="center">
-            {/* Nút bật/tắt Mock Mode */}
-            <Tooltip title="Nhấp để chuyển đổi Mock Data và API thật">
-              <Tag
-                color={mockActive ? 'success' : 'default'}
-                icon={<ThunderboltOutlined />}
-                style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 12, borderRadius: 6 }}
-                onClick={handleToggleMock}
-              >
-                Mock Data: {mockActive ? 'BẬT' : 'TẮT'}
-              </Tag>
-            </Tooltip>
-
-            {/* Quick Button mở Chat AI với màu Emerald */}
-            <Tooltip title="Mở Trợ lý HR AI">
-              <Button
-                type="primary"
-                shape="round"
-                icon={<RobotOutlined />}
-                onClick={() => navigate('/agent-chat')}
+            {/* Nhóm QUẢN LÝ */}
+            <div style={{ padding: '20px 12px 6px', fontSize: 11, fontWeight: 700, color: '#6b7280', letterSpacing: '0.8px' }}>
+              QUẢN LÝ
+            </div>
+            <Link to="/approvals" style={navItemStyle('/approvals')}>
+              <Space size={12}>
+                <InboxOutlined style={{ fontSize: 16 }} />
+                <span>Chờ xử lý</span>
+              </Space>
+              <div
                 style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  border: 0,
-                  boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
-                  fontWeight: 500,
+                  background: '#134e4a',
+                  color: '#5eead4',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  padding: '1px 8px',
+                  lineHeight: '18px',
                 }}
               >
-                Hỏi Trợ lý AI
-              </Button>
-            </Tooltip>
-
-            {/* User Profile Dropdown */}
-            <Dropdown menu={userMenuItems} trigger={['click']} placement="bottomRight">
-              <Space style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 8 }}>
-                <Avatar style={{ backgroundColor: '#059669' }} icon={<UserOutlined />}>
-                  {user?.fullName?.charAt(0)}
-                </Avatar>
-                <div style={{ lineHeight: 1.2 }}>
-                  <Text strong style={{ color: '#0f172a' }}>{user?.fullName}</Text>
-                </div>
+                {pendingCount}
+              </div>
+            </Link>
+            <Link to="/agent-trace" style={navItemStyle('/agent-trace')}>
+              <Space size={12}>
+                <UnorderedListOutlined style={{ fontSize: 16 }} />
+                <span>Nhật ký Agent</span>
               </Space>
-            </Dropdown>
-          </Space>
-        </Header>
+            </Link>
 
-        {/* Content Outlet */}
-        <Content style={{ margin: '24px 28px', minHeight: 480 }}>
+            {/* Nhóm QUẢN TRỊ HR */}
+            <div style={{ padding: '20px 12px 6px', fontSize: 11, fontWeight: 700, color: '#6b7280', letterSpacing: '0.8px' }}>
+              QUẢN TRỊ HR
+            </div>
+            <Link to="/admin" style={navItemStyle('/admin')}>
+              <Space size={12}>
+                <TeamOutlined style={{ fontSize: 16 }} />
+                <span>Nhân sự & Quy chế</span>
+              </Space>
+            </Link>
+            <Link to="/agent-settings" style={navItemStyle('/agent-settings')}>
+              <Space size={12}>
+                <ControlOutlined style={{ fontSize: 16 }} />
+                <span>Cấu hình Agent</span>
+              </Space>
+            </Link>
+          </div>
+
+          {/* Bottom Profile Row */}
+          <div style={{ borderTop: '1px solid #262624', paddingTop: 14 }}>
+            <Dropdown menu={userMenuItems} placement="topRight">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <Avatar
+                  style={{ backgroundColor: '#2d3748', color: '#e2e8f0', fontWeight: 700, flexShrink: 0 }}
+                  size={32}
+                >
+                  {user?.fullName?.charAt(0) || 'N'}
+                </Avatar>
+                <div style={{ overflow: 'hidden', flex: 1 }}>
+                  <div
+                    style={{
+                      color: '#f3f4f6',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {user?.fullName || 'Trần Nam'}
+                  </div>
+                  <div style={{ color: '#6b7280', fontSize: 11, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      const r = String(user?.role || '').toUpperCase();
+                      if (r === 'ADMIN') return 'Quản trị viên';
+                      if (r === 'HR' || r === 'HR_ADMIN' || user?.email === 'huyhoang@gmail.com') return 'Trưởng phòng HR';
+                      if (r === 'MANAGER') return 'Quản lý Bộ phận';
+                      return 'Nhân viên';
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </Dropdown>
+          </div>
+        </div>
+      </Sider>
+
+      {/* Main Content Area in Warm Ivory Cream */}
+      <Layout style={{ background: '#fcfbf7' }}>
+        <Content style={{ padding: '36px 40px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
           <Outlet />
         </Content>
-
-        {/* Footer */}
-        <Footer style={{ textAlign: 'center', color: '#94a3b8', padding: '16px 24px', fontSize: 13, background: 'transparent' }}>
-          HR Agent Management System © 2026 — Hệ thống Quản lý Yêu cầu Nhân sự với AI hỗ trợ phê duyệt
-        </Footer>
       </Layout>
     </Layout>
   );

@@ -22,9 +22,15 @@ export class AgentController {
 
   /**
    * Xem cấu hình mức độ tự chủ của AI cho các loại đơn
+   * Hỗ trợ cả /autonomy-config và alias /autonomy
    */
   @Get('autonomy-config')
   async getAutonomyConfigs() {
+    return this.agentService.getAutonomyConfigs();
+  }
+
+  @Get('autonomy')
+  async getAutonomyConfigsAlias() {
     return this.agentService.getAutonomyConfigs();
   }
 
@@ -41,11 +47,26 @@ export class AgentController {
   }
 
   /**
+   * Cập nhật mức độ tự chủ qua alias PUT /autonomy (Hỗ trợ FE gửi requestType trong body)
+   */
+  @Put('autonomy')
+  async updateAutonomyAlias(
+    @CurrentUser() caller: { id: string; role: string },
+    @Body() body: { requestType: RequestType; level: any; minConfidence?: number },
+  ) {
+    const reqType = body.requestType || RequestType.LEAVE;
+    return this.agentService.updateAutonomyConfig(caller, reqType, {
+      level: body.level,
+      minConfidence: body.minConfidence,
+    });
+  }
+
+  /**
    * Xem nhật ký suy luận và vết gọi công cụ của AI (Agent Trace)
    */
   @Get('traces')
   async getTraces(@Query('limit') limit?: string) {
-    return this.agentService.getTraces(limit ? parseInt(limit, 10) : 20);
+    return this.agentService.getTraces(limit ? parseInt(limit, 10) : 50);
   }
 
   /**

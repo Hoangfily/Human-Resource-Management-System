@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -12,7 +13,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpsertPolicyDto } from './dto/upsert-policy.dto';
 
-@Controller('policy')
+@Controller(['policy', 'policies'])
 @UseGuards(JwtAuthGuard)
 export class PolicyController {
   constructor(private readonly policyService: PolicyService) {}
@@ -46,5 +47,22 @@ export class PolicyController {
     @Body() dto: UpsertPolicyDto,
   ) {
     return this.policyService.upsertPolicy(caller, dto);
+  }
+
+  /**
+   * Cập nhật chính sách qua phương thức PUT /:key (Hỗ trợ tương thích FE)
+   */
+  @Put(':key')
+  async updateByKey(
+    @CurrentUser() caller: { role: string },
+    @Param('key') key: string,
+    @Body() body: { content?: string; title?: string },
+  ) {
+    const existing = await this.policyService.getPolicyByKey(key).catch(() => null);
+    return this.policyService.upsertPolicy(caller, {
+      key,
+      title: body.title || existing?.title || key,
+      content: body.content ?? existing?.content ?? '',
+    });
   }
 }

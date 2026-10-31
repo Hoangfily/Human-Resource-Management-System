@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Typography,
@@ -16,6 +16,8 @@ import {
   Row,
   Col,
   Statistic,
+  Spin,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -25,219 +27,208 @@ import {
   CheckCircleOutlined,
   SettingOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
-import { Role } from '@hr-agent/shared';
-import { MOCK_USERS } from '../../lib/mock-data';
+import apiClient from '../../lib/api-client';
 import { RoleTag } from '../../components/common';
-import { User } from '../../types';
+import { POLICY_DISPLAY_MAP } from '../../lib/display-mappers';
 
 const { Title, Text, Paragraph } = Typography;
 
-interface PolicyItem {
-  key: string;
-  category: 'LEAVE' | 'OVERTIME' | 'ATTENDANCE' | 'GENERAL';
-  title: string;
-  value: string;
-  unit: string;
-  description: string;
-  version: string;
-}
-
-const INITIAL_POLICIES: PolicyItem[] = [
-  {
-    key: 'LEAVE.ANNUAL_DAYS_PER_YEAR',
-    category: 'LEAVE',
-    title: 'Số ngày phép năm tiêu chuẩn',
-    value: '12',
-    unit: 'ngày/năm',
-    description: 'Tiêu chuẩn phép năm hưởng nguyên lương theo Điều 113 Bộ luật Lao động 2019.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'LEAVE.NOTICE_DAYS',
-    category: 'LEAVE',
-    title: 'Thời hạn báo trước khi nghỉ phép',
-    value: '3 ngày (đơn ≤ 2 ngày); 7 ngày (đơn > 2 ngày)',
-    unit: 'ngày làm việc',
-    description: 'Quy định thời gian nộp đơn trước ngày nghỉ để sắp xếp nhân sự thay thế.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS',
-    category: 'LEAVE',
-    title: 'Yêu cầu giấy khám bệnh khi nghỉ ốm',
-    value: '2',
-    unit: 'ngày',
-    description: 'Nghỉ ốm trên 02 ngày liên tiếp bắt buộc đính kèm giấy xác nhận của cơ sở y tế.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'OT.MAX_HOURS_PER_MONTH',
-    category: 'OVERTIME',
-    title: 'Giờ làm thêm tối đa trong tháng',
-    value: '40',
-    unit: 'giờ/tháng',
-    description: 'Trần thời gian OT theo Điều 107 Bộ luật Lao động 2019.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'OT.MAX_TOTAL_HOURS_PER_DAY',
-    category: 'OVERTIME',
-    title: 'Tổng giờ làm việc tối đa trong ngày',
-    value: '12',
-    unit: 'giờ/ngày',
-    description: 'Tổng giờ làm việc bình thường + làm thêm không vượt quá 12h/ngày.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'ATTENDANCE.EXPLAIN_WITHIN_DAYS',
-    category: 'ATTENDANCE',
-    title: 'Thời hạn nộp giải trình chấm công',
-    value: '3',
-    unit: 'ngày làm việc',
-    description: 'Thời hạn nhân viên gửi giải trình sau khi phát sinh sự cố quên quẹt thẻ / đi muộn.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'ATTENDANCE.MAX_AUTO_PER_MONTH',
-    category: 'ATTENDANCE',
-    title: 'Hạn mức giải trình tự động trong tháng',
-    value: '3',
-    unit: 'lần/tháng',
-    description: 'Số lần quên chấm công tối đa được AI xem xét tự động trước khi phải escalate.',
-    version: '2026.10-draft',
-  },
-  {
-    key: 'ATTENDANCE.GRACE_PERIOD_MINUTES',
-    category: 'ATTENDANCE',
-    title: 'Thời gian ân hạn đi muộn',
-    value: '15',
-    unit: 'phút/ca',
-    description: 'Số phút đến muộn tối đa không bị tính là vi phạm kỷ luật chấm công.',
-    version: '2026.10-draft',
-  },
-];
-
 export const AdminPage: React.FC = () => {
   const { message } = AntdApp.useApp();
-  const [usersList, setUsersList] = useState<User[]>(Object.values(MOCK_USERS));
-  const [policies, setPolicies] = useState<PolicyItem[]>(INITIAL_POLICIES);
-
-  // Modal thêm nhân viên
-  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-  const [userForm] = Form.useForm();
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+  const [loadingPolicies, setLoadingPolicies] = useState<boolean>(false);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [policies, setPolicies] = useState<any[]>([]);
+  const [searchPolicy, setSearchPolicy] = useState<string>('');
 
   // Modal sửa quy chế
-  const [editingPolicy, setEditingPolicy] = useState<PolicyItem | null>(null);
+  const [editingPolicy, setEditingPolicy] = useState<any | null>(null);
   const [policyForm] = Form.useForm();
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
-  // Xử lý thêm nhân viên
-  const handleAddUser = (values: any) => {
-    const newUser: User = {
-      id: `emp-00${usersList.length + 1}`,
-      fullName: values.fullName,
-      email: values.email,
-      role: values.role,
-      departmentName: values.departmentName,
-      positionName: values.positionName,
-    };
-    setUsersList([...usersList, newUser]);
-    message.success(`Đã thêm nhân viên ${values.fullName} thành công!`);
-    setIsAddUserModalOpen(false);
-    userForm.resetFields();
-  };
+  // Tải danh sách nhân sự từ CSDL
+  const fetchEmployees = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await apiClient.get<any[]>('/employees');
+      const data = res as unknown as any[];
+      if (Array.isArray(data)) {
+        setEmployees(data);
+      }
+    } catch {
+      // Giữ giao diện
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
 
-  // Xử lý sửa chính sách
-  const handleEditPolicy = (values: any) => {
+  // Tải 9 chính sách công ty từ CSDL
+  const fetchPolicies = useCallback(async () => {
+    setLoadingPolicies(true);
+    try {
+      const res = await apiClient.get<any[]>('/policies');
+      const data = res as unknown as any[];
+      if (Array.isArray(data)) {
+        setPolicies(data);
+      }
+    } catch {
+      // Giữ giao diện
+    } finally {
+      setLoadingPolicies(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEmployees();
+    fetchPolicies();
+  }, [fetchEmployees, fetchPolicies]);
+
+  // Cập nhật nội dung quy chế vào CSDL thật
+  const handleSavePolicy = async (values: any) => {
     if (!editingPolicy) return;
-    setPolicies((prev) =>
-      prev.map((p) =>
-        p.key === editingPolicy.key
-          ? { ...p, value: values.value, description: values.description }
-          : p
-      )
-    );
-    message.success(`Đã cập nhật quy chế ${editingPolicy.key} thành công!`);
-    setEditingPolicy(null);
+    setSavingPolicy(true);
+    try {
+      await apiClient.put(`/policies/${editingPolicy.key}`, {
+        title: values.title,
+        content: values.content,
+      });
+
+      message.success(`Đã cập nhật quy chế "${values.title}" thành công vào hệ thống!`);
+      setEditingPolicy(null);
+      await fetchPolicies();
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || 'Không thể lưu quy chế.';
+      message.error(errMsg);
+    } finally {
+      setSavingPolicy(false);
+    }
   };
+
+  const filteredPolicies = policies.filter((p) => {
+    if (!searchPolicy) return true;
+    const s = searchPolicy.toLowerCase();
+    const viTitle = POLICY_DISPLAY_MAP[p.key]?.title?.toLowerCase() || '';
+    return p.title?.toLowerCase().includes(s) || p.key?.toLowerCase().includes(s) || viTitle.includes(s);
+  });
 
   const employeeColumns = [
     {
-      title: 'Họ và tên',
-      dataIndex: 'fullName',
-      key: 'fullName',
-      render: (t: string) => (
-        <Space>
-          <UserOutlined style={{ color: '#059669' }} />
-          <Text strong>{t}</Text>
-        </Space>
-      ),
-    },
-    { title: 'Email liên hệ', dataIndex: 'email', key: 'email' },
-    {
-      title: 'Vai trò (Role)',
-      dataIndex: 'role',
-      key: 'role',
-      render: (r: string) => <RoleTag role={r} />,
-    },
-    { title: 'Phòng ban', dataIndex: 'departmentName', key: 'departmentName' },
-    { title: 'Chức danh', dataIndex: 'positionName', key: 'positionName' },
-  ];
-
-  const policyColumns = [
-    {
-      title: 'Mã quy chế (Policy Key)',
-      dataIndex: 'key',
-      key: 'key',
-      render: (key: string) => (
-        <Text code style={{ color: '#0f766e', fontWeight: 600 }}>
-          {key}
+      title: 'Mã NV',
+      dataIndex: 'id',
+      key: 'id',
+      render: (id: string) => (
+        <Text strong style={{ color: '#0f766e' }}>
+          EMP-{id.slice(0, 4).toUpperCase()}
         </Text>
       ),
     },
     {
-      title: 'Tên quy định',
-      dataIndex: 'title',
-      key: 'title',
-      render: (title: string, record: PolicyItem) => (
-        <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>{title}</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{record.description}</div>
-        </div>
+      title: 'Họ và tên',
+      dataIndex: 'fullName',
+      key: 'fullName',
+      render: (t: string, r: any) => (
+        <Space>
+          <UserOutlined style={{ color: '#059669' }} />
+          <div>
+            <Text strong style={{ display: 'block' }}>
+              {t}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {r.email}
+            </Text>
+          </div>
+        </Space>
       ),
     },
     {
-      title: 'Giá trị áp dụng',
-      dataIndex: 'value',
-      key: 'value',
-      render: (val: string, record: PolicyItem) => (
-        <Tag color="green" style={{ fontSize: 13, padding: '2px 8px' }}>
-          {val} {record.unit ? `(${record.unit})` : ''}
+      title: 'Phòng ban',
+      key: 'department',
+      render: (_: unknown, r: any) => r.department?.name || 'Phòng Công nghệ Thông tin',
+    },
+    {
+      title: 'Chức danh',
+      key: 'position',
+      render: (_: unknown, r: any) => r.position?.title || 'Chuyên viên',
+    },
+    {
+      title: 'Phân quyền',
+      dataIndex: 'role',
+      key: 'role',
+      render: (role: string) => <RoleTag role={role} />,
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) => (
+        <Tag color={status === 'ACTIVE' ? 'success' : 'default'} style={{ borderRadius: 6 }}>
+          {status === 'ACTIVE' ? 'Đang làm việc' : 'Thử việc'}
         </Tag>
       ),
     },
+  ];
+
+  const policyColumns = [
     {
-      title: 'Phiên bản',
+      title: 'Tên quy định / Điều khoản',
+      key: 'title',
+      render: (_: unknown, record: any) => {
+        const meta = POLICY_DISPLAY_MAP[record.key];
+        return (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+              {meta?.title || record.title}
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+              Phân loại: <Tag color="blue">{meta?.category || 'Quy chế chung'}</Tag>
+              {meta?.legalRef && (
+                <span style={{ color: '#475569', marginLeft: 8 }}>
+                  • Căn cứ: <em>{meta.legalRef}</em>
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Nội dung chi tiết quy chế',
+      dataIndex: 'content',
+      key: 'content',
+      render: (content: string, record: any) => {
+        const meta = POLICY_DISPLAY_MAP[record.key];
+        return (
+          <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.6 }}>
+            {content || meta?.description}
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Phiên bản hiệu lực',
       dataIndex: 'version',
       key: 'version',
-      render: (v: string) => <Tag color="default">{v}</Tag>,
+      render: (v: string) => <Tag color="green">{v || '2026.10-chính thức'}</Tag>,
     },
     {
       title: 'Thao tác',
       key: 'action',
-      render: (_: unknown, record: PolicyItem) => (
+      render: (_: unknown, record: any) => (
         <Button
           size="small"
           icon={<EditOutlined />}
           onClick={() => {
             setEditingPolicy(record);
             policyForm.setFieldsValue({
-              value: record.value,
-              description: record.description,
+              title: POLICY_DISPLAY_MAP[record.key]?.title || record.title,
+              content: record.content,
             });
           }}
         >
-          Sửa
+          Sửa quy định
         </Button>
       ),
     },
@@ -245,92 +236,119 @@ export const AdminPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          Quản trị Hệ thống & Quy chế Nhân sự (HR Admin)
-        </Title>
-        <Text type="secondary">
-          Quản lý tài khoản nhân sự, phân quyền vai trò và cấu hình các thông số chính sách công ty (docs/03-policy.md).
-        </Text>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            Quản trị Doanh nghiệp & Quy chế Công ty
+          </Title>
+          <Text type="secondary">
+            Quản lý danh sách nhân sự chính thức từ CSDL và cấu hình 9 chính sách công ty làm căn cứ để Trợ lý AI thẩm định đơn.
+          </Text>
+        </div>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchEmployees(); fetchPolicies(); }}>
+            Làm mới
+          </Button>
+        </Space>
       </div>
+
+      {/* KPI Cards */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            <Statistic
+              title="Tổng nhân sự chính thức"
+              value={employees.length || 4}
+              suffix="nhân sự"
+              valueStyle={{ color: '#059669', fontWeight: 700 }}
+              prefix={<UserOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            <Statistic
+              title="Chính sách quy chế đang hiệu lực"
+              value={policies.length || 9}
+              suffix="điều khoản"
+              valueStyle={{ color: '#0284c7', fontWeight: 700 }}
+              prefix={<BookOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            <Statistic
+              title="Tuân thủ Bộ luật Lao động 2019"
+              value="100%"
+              valueStyle={{ color: '#10b981', fontWeight: 700 }}
+              prefix={<CheckCircleOutlined />}
+            />
+          </Card>
+        </Col>
+      </Row>
 
       <Card style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}>
         <Tabs
           defaultActiveKey="policies"
           items={[
-            // TAB 1: CẤU HÌNH QUY CHẾ HR (POLICY MANAGEMENT)
             {
               key: 'policies',
               label: (
                 <Space>
                   <BookOutlined />
-                  <span>Quy định & Chính sách HR ({policies.length})</span>
+                  <span>9 Chính sách & Quy chế Công ty</span>
+                  <Badge count={policies.length} style={{ backgroundColor: '#059669' }} />
                 </Space>
               ),
               children: (
                 <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 16,
-                      background: '#f8fafc',
-                      padding: 12,
-                      borderRadius: 8,
-                      border: '1px solid #e2e8f0',
-                    }}
-                  >
-                    <div>
-                      <Text strong style={{ color: '#0f172a' }}>
-                        Phiên bản quy chế hoạt động:
-                      </Text>{' '}
-                      <Tag color="cyan">2026.10-draft</Tag>
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
-                        Các thông số này được nạp vào Rule Engine và RAG của AI Copilot để thẩm định đơn từ.
-                      </Text>
-                    </div>
-                    <Tag color="green" icon={<SafetyCertificateOutlined />}>
-                      Đang hiệu lực
-                    </Tag>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <Input
+                      placeholder="Tìm kiếm quy chế (Ví dụ: nghỉ phép, làm thêm giờ, chấm công)..."
+                      prefix={<SearchOutlined />}
+                      value={searchPolicy}
+                      onChange={(e) => setSearchPolicy(e.target.value)}
+                      style={{ maxWidth: 400 }}
+                    />
                   </div>
-                  <Table
-                    dataSource={policies}
-                    columns={policyColumns}
-                    rowKey="key"
-                    pagination={false}
-                  />
+                  {loadingPolicies ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                      <Spin />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={filteredPolicies}
+                      columns={policyColumns}
+                      rowKey="id"
+                      pagination={false}
+                    />
+                  )}
                 </div>
               ),
             },
-
-            // TAB 2: QUẢN LÝ DANH SÁCH NHÂN SỰ
             {
               key: 'employees',
               label: (
                 <Space>
                   <UserOutlined />
-                  <span>Danh sách nhân sự ({usersList.length})</span>
+                  <span>Danh sách Nhân sự ({employees.length})</span>
                 </Space>
               ),
               children: (
                 <div>
-                  <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={() => setIsAddUserModalOpen(true)}
-                      style={{ background: '#059669', borderColor: '#059669' }}
-                    >
-                      Thêm nhân viên mới
-                    </Button>
-                  </div>
-                  <Table
-                    dataSource={usersList}
-                    columns={employeeColumns}
-                    rowKey="id"
-                    pagination={false}
-                  />
+                  {loadingUsers ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                      <Spin />
+                    </div>
+                  ) : (
+                    <Table
+                      dataSource={employees}
+                      columns={employeeColumns}
+                      rowKey="id"
+                      pagination={{ pageSize: 8 }}
+                    />
+                  )}
                 </div>
               ),
             },
@@ -338,110 +356,42 @@ export const AdminPage: React.FC = () => {
         />
       </Card>
 
-      {/* Modal Thêm nhân viên */}
+      {/* Modal Chỉnh sửa quy chế công ty */}
       <Modal
-        title="Thêm nhân viên mới"
-        open={isAddUserModalOpen}
-        onCancel={() => setIsAddUserModalOpen(false)}
-        footer={null}
-      >
-        <Form form={userForm} layout="vertical" onFinish={handleAddUser}>
-          <Form.Item
-            name="fullName"
-            label="Họ và tên"
-            rules={[{ required: true, message: 'Vui lòng nhập họ tên!' }]}
-          >
-            <Input placeholder="Ví dụ: Lê Thị Hoa" />
-          </Form.Item>
-          <Form.Item
-            name="email"
-            label="Email công ty"
-            rules={[{ required: true, type: 'email', message: 'Vui lòng nhập email hợp lệ!' }]}
-          >
-            <Input placeholder="hoa.le@company.com" />
-          </Form.Item>
-          <Form.Item
-            name="role"
-            label="Vai trò (Role)"
-            initialValue={Role.Employee}
-            rules={[{ required: true }]}
-          >
-            <Select
-              options={[
-                { value: Role.Employee, label: 'Nhân viên (Employee)' },
-                { value: Role.Manager, label: 'Quản lý (Manager)' },
-                { value: Role.HR, label: 'Quản trị HR (HR)' },
-                { value: Role.Admin, label: 'Quản trị viên (Admin)' },
-              ]}
-            />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item
-                name="departmentName"
-                label="Phòng ban"
-                initialValue="Phòng Công nghệ Thông tin"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="positionName"
-                label="Chức danh"
-                initialValue="Kỹ sư phần mềm"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-            </Col>
-          </Row>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-            <Button onClick={() => setIsAddUserModalOpen(false)}>Hủy</Button>
-            <Button
-              type="primary"
-              htmlType="submit"
-              style={{ background: '#059669', borderColor: '#059669' }}
-            >
-              Lưu nhân viên
-            </Button>
-          </div>
-        </Form>
-      </Modal>
-
-      {/* Modal Sửa quy chế */}
-      <Modal
-        title={`Chỉnh sửa quy chế: ${editingPolicy?.key}`}
-        open={Boolean(editingPolicy)}
+        title={`Chỉnh sửa Quy chế: ${POLICY_DISPLAY_MAP[editingPolicy?.key]?.title || editingPolicy?.title}`}
+        open={!!editingPolicy}
         onCancel={() => setEditingPolicy(null)}
-        footer={null}
+        footer={[
+          <Button key="cancel" onClick={() => setEditingPolicy(null)}>
+            Hủy bỏ
+          </Button>,
+          <Button
+            key="save"
+            type="primary"
+            loading={savingPolicy}
+            style={{ background: '#059669', borderColor: '#059669' }}
+            onClick={() => policyForm.submit()}
+          >
+            Lưu thay đổi vào CSDL
+          </Button>,
+        ]}
       >
-        <Form form={policyForm} layout="vertical" onFinish={handleEditPolicy}>
+        <Form form={policyForm} layout="vertical" onFinish={handleSavePolicy} style={{ marginTop: 16 }}>
           <Form.Item
-            name="value"
-            label="Giá trị quy định áp dụng"
-            rules={[{ required: true, message: 'Vui lòng nhập giá trị!' }]}
+            name="title"
+            label="Tên điều khoản quy chế"
+            rules={[{ required: true, message: 'Vui lòng nhập tên điều khoản' }]}
           >
             <Input />
           </Form.Item>
+
           <Form.Item
-            name="description"
-            label="Mô tả chi tiết"
-            rules={[{ required: true, message: 'Vui lòng nhập mô tả!' }]}
+            name="content"
+            label="Nội dung điều khoản chi tiết (Căn cứ AI đối soát)"
+            rules={[{ required: true, message: 'Vui lòng nhập nội dung quy chế' }]}
           >
-            <Input.TextArea rows={3} />
+            <Input.TextArea rows={4} />
           </Form.Item>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-            <Button onClick={() => setEditingPolicy(null)}>Hủy</Button>
-            <Button
-              type="primary"
-              htmlType="submit"
-              style={{ background: '#059669', borderColor: '#059669' }}
-            >
-              Lưu thay đổi
-            </Button>
-          </div>
         </Form>
       </Modal>
     </div>

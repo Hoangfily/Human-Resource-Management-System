@@ -11,6 +11,10 @@ export class DecisionDto {
   @IsOptional()
   @IsString({ message: 'Lý do phải là chuỗi ký tự' })
   reason?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Ghi chú phải là chuỗi ký tự' })
+  note?: string;
 }
 
 export class EscalateDto {

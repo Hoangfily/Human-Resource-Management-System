@@ -22,7 +22,6 @@ import {
   HistoryOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  ExclamationCircleOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
   BookOutlined,
@@ -32,8 +31,9 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import { RequestStatus, RequestType } from '@hr-agent/shared';
-import { StatusTag } from '../common';
+import { StatusTag, RiskBadge, RequestTypeTag } from '../common';
 import { RequestItem } from '../../types';
+import { formatPolicyName, getRiskMeta } from '../../lib/display-mappers';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -64,16 +64,8 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
 
   if (!request) return null;
 
-  const payload = request.payload as Record<string, any>;
-  const riskColor =
-    request.riskLevel === 'HIGH' ? 'error' : request.riskLevel === 'MEDIUM' ? 'warning' : 'success';
-
-  const riskLabel =
-    request.riskLevel === 'HIGH'
-      ? 'RỦI RO CAO (HIGH)'
-      : request.riskLevel === 'MEDIUM'
-      ? 'RỦI RO TRUNG BÌNH (MEDIUM)'
-      : 'RỦI RO THẤP (LOW)';
+  const payload = (request.payload as Record<string, any>) || {};
+  const riskMeta = getRiskMeta(request.riskLevel, request.aiRiskScore);
 
   const handleConfirmReject = () => {
     if (onReject) {
@@ -89,27 +81,36 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
       <Modal
         open={open}
         onCancel={onClose}
-        width={780}
+        width={800}
         footer={null}
-        style={{ top: 30 }}
+        style={{ top: 28 }}
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
             <Space size={10}>
-              <FileTextOutlined style={{ color: '#059669', fontSize: 20 }} />
-              <span style={{ fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
-                Chi tiết yêu cầu #{request.id}
-              </span>
-              <StatusTag status={request.status} />
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 8,
+                  background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#059669',
+                }}
+              >
+                <FileTextOutlined style={{ fontSize: 18 }} />
+              </div>
+              <div>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                  Hồ sơ yêu cầu #{request.id.slice(0, 8)}
+                </span>
+                <span style={{ marginLeft: 8 }}>
+                  <StatusTag status={request.status} />
+                </span>
+              </div>
             </Space>
-            <Tag color="cyan" style={{ borderRadius: 6, fontWeight: 500 }}>
-              {request.type === RequestType.Leave
-                ? 'Nghỉ phép'
-                : request.type === RequestType.AttendanceExplanation
-                ? 'Giải trình chấm công'
-                : request.type === RequestType.ShiftChange
-                ? 'Đổi ca làm việc'
-                : 'Làm thêm giờ (OT)'}
-            </Tag>
+            <RequestTypeTag type={request.type} />
           </div>
         }
       >
@@ -119,18 +120,18 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
           style={{ marginTop: 8 }}
           items={[
             // ==========================================
-            // TAB 1: THÔNG TIN CHI TIẾT
+            // PHẦN 1: THÔNG TIN CHI TIẾT ĐƠN TỪ
             // ==========================================
             {
               key: 'details',
               label: (
                 <Space>
                   <FileTextOutlined />
-                  <span>Thông tin yêu cầu</span>
+                  <span style={{ fontWeight: 500 }}>1. Thông tin yêu cầu</span>
                 </Space>
               ),
               children: (
-                <div>
+                <div style={{ paddingTop: 8 }}>
                   {/* Bảng thông tin người gửi & thời gian */}
                   <Descriptions
                     bordered
@@ -138,36 +139,45 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     column={{ xs: 1, sm: 2 }}
                     style={{ marginBottom: 16 }}
                   >
-                    <Descriptions.Item label="Nhân viên nộp đơn">
+                    <Descriptions.Item label="Nhân viên đề xuất">
                       <Space>
                         <UserOutlined style={{ color: '#059669' }} />
                         <Text strong>{request.employeeName}</Text>
-                        <Text type="secondary">({request.employeeCode || 'EMP001'})</Text>
+                        <Text type="secondary">({request.employeeCode || 'NV'})</Text>
                       </Space>
                     </Descriptions.Item>
-                    <Descriptions.Item label="Phòng ban">
+                    <Descriptions.Item label="Phòng ban trực thuộc">
                       {request.departmentName || 'Phòng Công nghệ Thông tin'}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Thời gian gửi đơn">
+                    <Descriptions.Item label="Thời gian nộp đơn">
                       {new Date(request.createdAt).toLocaleString('vi-VN')}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Người duyệt phân công">
+                    <Descriptions.Item label="Cán bộ phụ trách duyệt">
                       {request.approverName ? (
                         <Text strong style={{ color: '#0f172a' }}>
                           {request.approverName}
                         </Text>
                       ) : (
-                        <Text type="secondary">Chờ hệ thống chỉ định</Text>
+                        <Text type="secondary">Đang chờ hệ thống phân công</Text>
                       )}
                     </Descriptions.Item>
                     {payload.dates && (
-                      <Descriptions.Item label="Thời gian áp dụng">
+                      <Descriptions.Item label="Khoảng thời gian áp dụng">
                         <strong>{payload.dates}</strong>
                       </Descriptions.Item>
                     )}
+                    {payload.startDate && payload.endDate && !payload.dates && (
+                      <Descriptions.Item label="Khoảng thời gian áp dụng">
+                        <strong>
+                          {new Date(payload.startDate).toLocaleDateString('vi-VN')} – {new Date(payload.endDate).toLocaleDateString('vi-VN')}
+                        </strong>
+                      </Descriptions.Item>
+                    )}
                     {payload.daysCount && (
-                      <Descriptions.Item label="Số ngày yêu cầu">
-                        <Tag color="blue">{payload.daysCount} ngày</Tag>
+                      <Descriptions.Item label="Thời lượng yêu cầu">
+                        <Tag color="cyan" style={{ borderRadius: 6, fontWeight: 600 }}>
+                          {payload.daysCount} ngày làm việc
+                        </Tag>
                       </Descriptions.Item>
                     )}
                   </Descriptions>
@@ -196,17 +206,17 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       type="error"
                       showIcon
                       icon={<CloseCircleOutlined />}
-                      message="Yêu cầu đã bị từ chối"
+                      message="Yêu cầu không được phê duyệt"
                       description={`Lý do từ chối: ${request.rejectionReason}`}
-                      style={{ marginBottom: 16 }}
+                      style={{ marginBottom: 16, borderRadius: 8 }}
                     />
                   )}
 
                   {/* Tóm tắt nhanh nhận định AI */}
                   <div
                     style={{
-                      background: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
+                      background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+                      border: '1px solid #a7f3d0',
                       borderRadius: 10,
                       padding: 14,
                       display: 'flex',
@@ -214,14 +224,30 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       justifyContent: 'space-between',
                     }}
                   >
-                    <Space>
-                      <RobotOutlined style={{ color: '#059669', fontSize: 20 }} />
+                    <Space size={12}>
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          background: '#d1fae5',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#059669',
+                        }}
+                      >
+                        <RobotOutlined style={{ fontSize: 20 }} />
+                      </div>
                       <div>
-                        <Text strong style={{ color: '#166534', fontSize: 13, display: 'block' }}>
-                          Thẩm định sơ bộ từ AI Agent:
-                        </Text>
-                        <Text style={{ color: '#14532d', fontSize: 12 }}>
-                          {request.aiRationale?.slice(0, 85) || 'Yêu cầu hợp lệ theo quy chế nội bộ.'}...
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Text strong style={{ color: '#065f46', fontSize: 13 }}>
+                            Thẩm định sơ bộ từ Trợ lý AI:
+                          </Text>
+                          <RiskBadge riskLevel={request.riskLevel} confidence={request.aiConfidence} showScore={false} />
+                        </div>
+                        <Text style={{ color: '#047857', fontSize: 12 }}>
+                          {request.aiRationale?.slice(0, 95) || 'Yêu cầu hợp lệ, hoàn toàn tuân thủ quy chế nội bộ công ty.'}...
                         </Text>
                       </div>
                     </Space>
@@ -231,7 +257,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       onClick={() => setActiveTab('ai-audit')}
                       style={{ color: '#059669', fontWeight: 600 }}
                     >
-                      Xem chi tiết AI →
+                      Xem chi tiết đối soát →
                     </Button>
                   </div>
                 </div>
@@ -239,18 +265,18 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
             },
 
             // ==========================================
-            // TAB 2: THẨM ĐỊNH & PHÂN TÍCH AI (AI AUDIT)
+            // PHẦN 2: THẨM ĐỊNH & PHÂN TÍCH AI (AI AUDIT)
             // ==========================================
             {
               key: 'ai-audit',
               label: (
                 <Space>
-                  <RobotOutlined />
-                  <span>Phân tích & Thẩm định AI</span>
+                  <RobotOutlined style={{ color: '#059669' }} />
+                  <span style={{ fontWeight: 500 }}>2. Phân tích & Thẩm định AI</span>
                 </Space>
               ),
               children: (
-                <div>
+                <div style={{ paddingTop: 8 }}>
                   {/* Hộp chỉ số Rủi ro & Độ tin cậy */}
                   <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                     <Col xs={24} sm={12}>
@@ -259,24 +285,17 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                         style={{
                           borderRadius: 10,
                           border: '1px solid #e2e8f0',
-                          background: '#fafafa',
+                          background: '#f8fafc',
                         }}
                       >
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          Mức độ rủi ro (Risk Level):
+                          Đánh giá mức độ an toàn:
                         </Text>
                         <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Tag color={riskColor} style={{ fontSize: 13, padding: '4px 10px', borderRadius: 6 }}>
-                            {riskLabel}
-                          </Tag>
-                          <Text strong style={{ fontSize: 14 }}>
-                            Score: {(request.aiRiskScore ?? 0.05).toFixed(2)}
-                          </Text>
+                          <RiskBadge riskLevel={request.riskLevel} confidence={request.aiConfidence} showScore={false} />
                         </div>
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                          {request.riskLevel === 'LOW'
-                            ? 'Thuộc diện được AI đề xuất Auto-Approve'
-                            : 'Cần sự can thiệp phê duyệt của con người'}
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6, color: '#64748b' }}>
+                          {riskMeta.description}
                         </Text>
                       </Card>
                     </Col>
@@ -286,12 +305,12 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                         style={{
                           borderRadius: 10,
                           border: '1px solid #e2e8f0',
-                          background: '#fafafa',
+                          background: '#f8fafc',
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            Độ tin cậy của AI (Confidence):
+                            Mức độ tự tin trong thẩm định:
                           </Text>
                           <Text strong style={{ color: '#059669' }}>
                             {Math.round((request.aiConfidence ?? 0.95) * 100)}%
@@ -303,17 +322,17 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                           size="small"
                           style={{ marginTop: 6 }}
                         />
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          Mô hình RAG phân tích theo quy chế CompanyPolicy 2026.10
+                        <Text type="secondary" style={{ fontSize: 11, color: '#64748b' }}>
+                          Hệ thống AI tự động đối soát theo 9 điều khoản Quy chế Nhân sự hiện hành
                         </Text>
                       </Card>
                     </Col>
                   </Row>
 
-                  {/* Lý do đề xuất của AI (AI Rationale) */}
+                  {/* Lý do đề xuất của AI */}
                   <div
                     style={{
-                      background: '#f8fafc',
+                      background: '#ffffff',
                       border: '1px solid #cbd5e1',
                       borderRadius: 10,
                       padding: 16,
@@ -323,7 +342,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <SafetyCertificateOutlined style={{ color: '#059669', fontSize: 16 }} />
                       <Text strong style={{ color: '#0f172a', fontSize: 14 }}>
-                        Lý giải đề xuất của AI (Decision Rationale):
+                        Lý giải đề xuất từ Trợ lý HR AI:
                       </Text>
                     </div>
                     <Paragraph style={{ color: '#334155', fontSize: 13, lineHeight: 1.65, margin: 0 }}>
@@ -335,28 +354,29 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                   {/* Checklist đối soát quy chế công ty */}
                   <div style={{ marginBottom: 16 }}>
                     <Text strong style={{ display: 'block', color: '#0f172a', marginBottom: 8 }}>
-                      Kết quả đối soát quy chuẩn (Policy Checklist):
+                      Kết quả kiểm tra điều kiện quy chế nội bộ:
                     </Text>
                     <Space direction="vertical" style={{ width: '100%' }}>
                       {(request.aiPolicyFindings || [
-                        'Thời gian báo trước thỏa mãn quy định ≥ 3 ngày làm việc',
-                        'Số dư ngày phép còn đủ để trừ',
+                        'Thời gian gửi đơn báo trước thỏa mãn quy định (≥ 3 ngày làm việc)',
+                        'Số dư quỹ phép năm của nhân viên còn khả dụng để trừ',
+                        'Không trùng lịch cao điểm bàn giao hoặc trực dự án quan trọng',
                       ]).map((finding, idx) => (
                         <div
                           key={idx}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8,
+                            gap: 10,
                             background: '#f0fdf4',
                             border: '1px solid #bbf7d0',
-                            padding: '8px 12px',
-                            borderRadius: 6,
+                            padding: '9px 14px',
+                            borderRadius: 8,
                             fontSize: 13,
                             color: '#166534',
                           }}
                         >
-                          <CheckCircleOutlined style={{ color: '#059669' }} />
+                          <CheckCircleOutlined style={{ color: '#059669', fontSize: 15 }} />
                           <span>{finding}</span>
                         </div>
                       ))}
@@ -365,14 +385,26 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
 
                   {/* Danh sách điều khoản quy chế trích dẫn */}
                   {request.policyReferences && request.policyReferences.length > 0 && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                        Điều khoản quy chế được trích dẫn (docs/03-policy.md):
+                    <div
+                      style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8,
+                        padding: 12,
+                      }}
+                    >
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6, fontWeight: 500 }}>
+                        Căn cứ quy chế công ty áp dụng:
                       </Text>
                       <Space wrap>
                         {request.policyReferences.map((ref) => (
-                          <Tag key={ref} color="blue" icon={<BookOutlined />}>
-                            {ref}
+                          <Tag
+                            key={ref}
+                            color="cyan"
+                            icon={<BookOutlined />}
+                            style={{ borderRadius: 6, padding: '3px 8px', fontSize: 12 }}
+                          >
+                            {formatPolicyName(ref)}
                           </Tag>
                         ))}
                       </Space>
@@ -383,18 +415,18 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
             },
 
             // ==========================================
-            // TAB 3: DÒNG THỜI GIAN LỊCH SỬ (TIMELINE)
+            // PHẦN 3: DÒNG THỜI GIAN LỊCH SỬ (TIMELINE)
             // ==========================================
             {
               key: 'timeline',
               label: (
                 <Space>
                   <HistoryOutlined />
-                  <span>Dòng thời gian phê duyệt</span>
+                  <span style={{ fontWeight: 500 }}>3. Tiến trình phê duyệt</span>
                 </Space>
               ),
               children: (
-                <div style={{ padding: '12px 16px' }}>
+                <div style={{ padding: '16px 12px' }}>
                   <Timeline
                     items={(
                       request.timeline || [
@@ -402,29 +434,31 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                           title: 'Tạo yêu cầu',
                           actor: request.employeeName,
                           actorType: 'HUMAN',
-                          timestamp: request.createdAt,
-                          description: 'Đơn được nộp lên hệ thống HRMS',
+                          timestamp: new Date(request.createdAt).toLocaleString('vi-VN'),
+                          description: 'Đơn được khởi tạo và nộp lên hệ thống quản lý',
                           status: 'finish',
                         },
                         {
-                          title: 'AI Agent thẩm định',
-                          actor: 'HR AI Copilot',
+                          title: 'Trợ lý AI thẩm định',
+                          actor: 'Trợ lý HR AI',
                           actorType: 'AI',
-                          timestamp: request.createdAt,
-                          description: 'Đối soát chính sách & đánh giá mức rủi ro',
+                          timestamp: new Date(request.createdAt).toLocaleString('vi-VN'),
+                          description: 'Đối soát 9 quy chế nội bộ & kiểm tra mức độ an toàn',
                           status: 'finish',
                         },
                         {
                           title: 'Xét duyệt cấp quản lý',
-                          actor: request.approverName || 'Nguyễn Tiến Dũng',
+                          actor: request.approverName || 'Cán bộ Quản lý',
                           actorType: 'HUMAN',
-                          timestamp: request.updatedAt,
+                          timestamp: request.updatedAt
+                            ? new Date(request.updatedAt).toLocaleString('vi-VN')
+                            : 'Đang chờ xử lý',
                           description:
                             request.status === RequestStatus.Approved
-                              ? 'Đã phê duyệt chấp thuận'
+                              ? 'Đã chấp thuận phê duyệt'
                               : request.status === RequestStatus.Rejected
-                              ? 'Đã từ chối đơn'
-                              : 'Đang chờ xem xét',
+                              ? 'Đã từ chối yêu cầu'
+                              : 'Đang trong danh sách chờ quản lý xem xét',
                           status:
                             request.status === RequestStatus.Approved
                               ? 'finish'
@@ -436,21 +470,30 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     ).map((t, i) => ({
                       color:
                         t.status === 'error'
-                          ? 'red'
+                          ? '#dc2626'
                           : t.status === 'process'
-                          ? 'blue'
+                          ? '#2563eb'
                           : '#059669',
                       children: (
-                        <div key={i} style={{ marginBottom: 8 }}>
+                        <div key={i} style={{ marginBottom: 10 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <Text strong style={{ color: '#0f172a', fontSize: 14 }}>
                               {t.title}
                             </Text>
-                            <Tag color={t.actorType === 'AI' ? 'purple' : 'default'} style={{ fontSize: 11 }}>
+                            <Tag
+                              color={t.actorType === 'AI' ? 'emerald' : 'default'}
+                              style={{
+                                fontSize: 11,
+                                borderRadius: 6,
+                                background: t.actorType === 'AI' ? '#ecfdf5' : undefined,
+                                color: t.actorType === 'AI' ? '#065f46' : undefined,
+                                borderColor: t.actorType === 'AI' ? '#a7f3d0' : undefined,
+                              }}
+                            >
                               {t.actor}
                             </Tag>
                           </div>
-                          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
                             {t.timestamp}
                           </Text>
                           {t.description && (
@@ -472,7 +515,6 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
         <Divider style={{ margin: '16px 0 12px' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            {/* Nút hủy đơn dành cho Nhân viên khi đơn đang chờ */}
             {!isApproverMode &&
               (request.status === RequestStatus.Pending || request.status === RequestStatus.Draft) &&
               onCancelRequest && (
@@ -492,7 +534,6 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
           <Space>
             <Button onClick={onClose}>Đóng</Button>
 
-            {/* Các nút dành cho Quản lý phê duyệt */}
             {isApproverMode && request.status === RequestStatus.Pending && (
               <>
                 {onEscalate && (
@@ -503,7 +544,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       onClose();
                     }}
                   >
-                    Chuyển cấp HR
+                    Chuyển cấp thẩm định HR
                   </Button>
                 )}
                 <Button
@@ -523,7 +564,7 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       onClose();
                     }}
                   >
-                    Phê duyệt đơn
+                    Phê duyệt yêu cầu
                   </Button>
                 )}
               </>
@@ -543,13 +584,13 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
       >
         <div style={{ marginTop: 12 }}>
           <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            Vui lòng nhập lý do cụ thể để nhân viên nắm được thông tin:
+            Vui lòng nhập lý do cụ thể để gửi thông báo cho nhân viên:
           </Text>
           <Input.TextArea
             rows={3}
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Ví dụ: Dự án đang trong giai đoạn nước rút, đề nghị sắp xếp lại lịch nghỉ..."
+            placeholder="Ví dụ: Dự án đang trong giai đoạn nước rút, đề nghị sắp xếp lại lịch nghỉ sau ngày 15..."
           />
         </div>
       </Modal>

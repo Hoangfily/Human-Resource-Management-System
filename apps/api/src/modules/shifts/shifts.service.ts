@@ -98,6 +98,56 @@ export class ShiftsService {
   }
 
   /**
+   * Xem lịch ca cá nhân (Alias hỗ trợ FE)
+   */
+  async getMySchedule(caller: { id: string; role: string }) {
+    const list = await this.getSchedules(caller, { employeeId: caller.id });
+    if (list.length > 0) return list;
+
+    const emp = await this.prisma.employee.findUnique({
+      where: { id: caller.id },
+      include: { defaultShift: true },
+    });
+
+    return [
+      {
+        id: 'default-schedule',
+        employeeId: caller.id,
+        shiftTemplate: emp?.defaultShift?.name || 'Ca Sáng (08:30 - 17:30)',
+        shiftStart: '08:30',
+        shiftEnd: '17:30',
+        date: new Date(),
+      },
+    ];
+  }
+
+  /**
+   * Lấy danh sách đồng nghiệp cùng bộ phận để xin đổi ca
+   */
+  async getColleagues(caller: { id: string }) {
+    const me = await this.prisma.employee.findUnique({
+      where: { id: caller.id },
+      select: { departmentId: true },
+    });
+
+    return this.prisma.employee.findMany({
+      where: {
+        id: { not: caller.id },
+        ...(me?.departmentId ? { departmentId: me.departmentId } : {}),
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        defaultShift: true,
+        department: { select: { name: true } },
+      },
+      take: 10,
+    });
+  }
+
+  /**
    * 4. Phân ca làm việc cho nhân viên theo ngày (Manager / HR / Admin)
    */
   async assignSchedule(caller: { role: string }, dto: AssignScheduleDto) {

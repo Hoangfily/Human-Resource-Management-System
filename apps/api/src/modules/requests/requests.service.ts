@@ -437,7 +437,8 @@ export class RequestsService {
       );
     }
 
-    if (dto.status === RequestStatus.REJECTED && !dto.reason?.trim()) {
+    const effectiveReason = dto.reason?.trim() || dto.note?.trim();
+    if (dto.status === RequestStatus.REJECTED && !effectiveReason) {
       throw new BadRequestException('Vui lòng nhập lý do từ chối yêu cầu');
     }
 

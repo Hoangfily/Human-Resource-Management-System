@@ -40,10 +40,15 @@ export class AttendanceController {
   }
 
   /**
-   * Lấy trạng thái chấm công của ngày hôm nay
+   * Lấy trạng thái chấm công của ngày hôm nay (hỗ trợ cả /today và alias /status)
    */
   @Get('today')
   async getTodayStatus(@CurrentUser() caller: { id: string }) {
+    return this.attendanceService.getTodayStatus(caller);
+  }
+
+  @Get('status')
+  async getStatusAlias(@CurrentUser() caller: { id: string }) {
     return this.attendanceService.getTodayStatus(caller);
   }
 

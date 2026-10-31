@@ -26,6 +26,22 @@ export class ShiftsController {
   }
 
   /**
+   * Xem ca làm việc cá nhân (Hỗ trợ alias FE)
+   */
+  @Get('my-schedule')
+  async getMySchedule(@CurrentUser() caller: { id: string; role: string }) {
+    return this.shiftsService.getMySchedule(caller);
+  }
+
+  /**
+   * Xem đồng nghiệp cùng bộ phận để đổi ca (Hỗ trợ FE)
+   */
+  @Get('colleagues')
+  async getColleagues(@CurrentUser() caller: { id: string }) {
+    return this.shiftsService.getColleagues(caller);
+  }
+
+  /**
    * Tạo mới mẫu ca làm việc (HR / Admin)
    */
   @Post('templates')

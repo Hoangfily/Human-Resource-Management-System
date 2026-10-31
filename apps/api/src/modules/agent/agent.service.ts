@@ -75,7 +75,7 @@ export class AgentService {
   /**
    * 3. Lấy danh sách nhật ký suy luận & gọi tool của AI (AgentTrace)
    */
-  async getTraces(limit = 20) {
+  async getTraces(limit = 50) {
     return this.prisma.agentTrace.findMany({
       take: limit,
       orderBy: { createdAt: 'desc' },
@@ -112,7 +112,13 @@ export class AgentService {
 
       if (response.ok) {
         const data = await response.json();
-        return data;
+        return {
+          ...data,
+          reply: data.reply || data.message,
+          message: data.message || data.reply,
+          sources: data.sources || data.citationKeys || [],
+          citationKeys: data.citationKeys || data.sources || [],
+        };
       }
     } catch {
       this.logger.warn(`AI Service tại ${aiBaseUrl} chưa khả dụng. Kích hoạt bộ trợ lý phản hồi dự phòng.`);
@@ -165,7 +171,9 @@ export class AgentService {
     return {
       conversationId: dto.conversationId || 'conv-default',
       reply,
+      message: reply,
       sources: policyReferences,
+      citationKeys: policyReferences,
       traceId: trace.id,
       timestamp: new Date().toISOString(),
     };
