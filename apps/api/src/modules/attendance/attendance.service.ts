@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { AttendanceEventType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { COMPANY_UTC_OFFSET, currentMonth, currentYear } from '../../common/utils/company-date';
 import { CheckInDto } from './dto/check-in.dto';
 import { CheckOutDto } from './dto/check-out.dto';
 
@@ -215,13 +216,15 @@ export class AttendanceService {
    * 4. Xem lịch sử chấm công theo tháng/năm của nhân viên
    */
   async getMyHistory(caller: { id: string }, month?: number, year?: number) {
-    const now = new Date();
-    const targetYear = year ?? now.getFullYear();
-    const targetMonth = month ?? now.getMonth() + 1;
+    const targetYear = year ?? currentYear();
+    const targetMonth = month ?? currentMonth();
 
-    // Tính ngày bắt đầu và kết thúc của tháng cần xem
-    const startDate = new Date(targetYear, targetMonth - 1, 1, 0, 0, 0, 0);
-    const endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+    // Tính ngày bắt đầu và kết thúc của tháng cần xem theo giờ công ty (không theo giờ của server)
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const nextYear = targetMonth === 12 ? targetYear + 1 : targetYear;
+    const nextMonth = targetMonth === 12 ? 1 : targetMonth + 1;
+    const startDate = new Date(`${targetYear}-${pad(targetMonth)}-01T00:00:00${COMPANY_UTC_OFFSET}`);
+    const endDate = new Date(new Date(`${nextYear}-${pad(nextMonth)}-01T00:00:00${COMPANY_UTC_OFFSET}`).getTime() - 1);
 
     const events = await this.prisma.attendanceEvent.findMany({
       where: {

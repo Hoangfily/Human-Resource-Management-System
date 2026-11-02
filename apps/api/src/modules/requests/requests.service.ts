@@ -20,6 +20,8 @@ import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
 import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
 import { AiDecisionDto } from './dto/ai-decision.dto';
+import { addDays, currentYear, weekday } from '../../common/utils/company-date';
+import { assertHardRules } from './request-rules';
 
 @Injectable()
 export class RequestsService {
@@ -31,9 +33,9 @@ export class RequestsService {
    * Helper: Trích xuất năm hợp lệ từ chuỗi ngày (YYYY-MM-DD), mặc định là năm hiện tại
    */
   private extractYear(dateStr?: string): number {
-    if (!dateStr) return new Date().getFullYear();
-    const d = new Date(dateStr);
-    return isNaN(d.getFullYear()) ? new Date().getFullYear() : d.getFullYear();
+    // Đọc năm trực tiếp từ chuỗi "YYYY-MM-DD": new Date() đổi sang giờ server có thể lùi sang năm trước
+    const match = dateStr ? /^(\d{4})-/.exec(dateStr) : null;
+    return match ? Number(match[1]) : currentYear();
   }
 
   /**
@@ -43,26 +45,21 @@ export class RequestsService {
     if (startDateStr === endDateStr && (halfDay === 'AM' || halfDay === 'PM')) {
       return 0.5;
     }
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+    // Tính trên chuỗi "YYYY-MM-DD" (theo UTC) để thứ trong tuần không lệch theo múi giờ của server
+    const start = startDateStr?.slice(0, 10);
+    const end = endDateStr?.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(end ?? '') || end < start) {
       return 1;
     }
 
     let count = 0;
-    const cur = new Date(start);
-    cur.setHours(12, 0, 0, 0);
-    const endMidnight = new Date(end);
-    endMidnight.setHours(12, 0, 0, 0);
-
-    while (cur <= endMidnight) {
-      const day = cur.getDay();
-      if (day >= 1 && day <= 5) {
+    for (let day = start; day <= end; day = addDays(day, 1)) {
+      const dow = weekday(day);
+      if (dow >= 1 && dow <= 5) {
         count++;
       }
-      cur.setDate(cur.getDate() + 1);
     }
-    return Math.max(count, 0);
+    return count;
   }
 
   /**
@@ -189,6 +186,11 @@ export class RequestsService {
 
     // Thực hiện transaction tạo đơn và các bản ghi liên quan
     const result = await this.prisma.$transaction(async (tx) => {
+      // Luật cứng lớp Validation chỉ áp dụng khi gửi duyệt; bản nháp được phép chưa đầy đủ (Spec §2)
+      if (status === RequestStatus.PENDING) {
+        await assertHardRules(tx, dto.type, targetEmployeeId, payload);
+      }
+
       const request = await tx.request.create({
         data: {
           employeeId: targetEmployeeId,
@@ -439,6 +441,10 @@ export class RequestsService {
   }
 
   async submit(caller: { id: string; role: string }, id: string, correlationId?: string) {
+    if (caller.role === 'AI') {
+      throw new ForbiddenException('AI không có quyền gửi đơn');
+    }
+
     const request = await this.prisma.request.findUnique({
       where: { id },
       include: { employee: true },
@@ -446,6 +452,14 @@ export class RequestsService {
 
     if (!request) {
       throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
+    }
+
+    // Chỉ chủ đơn hoặc quản lý trực tiếp của họ (hoặc HR/Admin) được gửi bản nháp đi duyệt
+    if (caller.role === 'EMPLOYEE' && request.employeeId !== caller.id) {
+      throw new ForbiddenException('Bạn chỉ có thể gửi đơn của chính mình');
+    }
+    if (caller.role === 'MANAGER' && request.employeeId !== caller.id && request.employee.managerId !== caller.id) {
+      throw new ForbiddenException('Quản lý chỉ có thể gửi đơn của nhân viên thuộc quyền quản lý trực tiếp');
     }
 
     if (request.status !== RequestStatus.DRAFT) {
@@ -457,13 +471,19 @@ export class RequestsService {
     const leaveYear = this.extractYear((request.payload as any)?.startDate);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.request.update({
-        where: { id },
+      await assertHardRules(tx, request.type, request.employeeId, request.payload as Record<string, any>, id);
+
+      // Chỉ chuyển khi đơn vẫn là DRAFT: bấm gửi 2 lần cùng lúc thì lần sau không tạo thêm approval hay giữ chỗ phép
+      const moved = await tx.request.updateMany({
+        where: { id, status: RequestStatus.DRAFT },
         data: {
           status: RequestStatus.PENDING,
           submittedAt: new Date(),
         },
       });
+      if (moved.count === 0) {
+        throw new BadRequestException('Chỉ có thể gửi phê duyệt cho đơn ở trạng thái DRAFT');
+      }
 
       await tx.requestStatusHistory.create({
         data: {
@@ -592,7 +612,7 @@ export class RequestsService {
             data: {
               requestId: id,
               mode: dto.trace.mode || 'DECISION',
-              model: dto.trace.model || 'gemini-3.5-flash',
+              model: dto.trace.model || 'unknown',
               toolCalls: dto.trace.toolCalls || [],
               policyReferences: dto.policyRefs || dto.trace.policyRefs || [],
               decision: RequestStatus.ESCALATED,
@@ -660,7 +680,7 @@ export class RequestsService {
         data: {
           requestId: id,
           mode: dto.trace?.mode || 'DECISION',
-          model: dto.trace?.model || 'gemini-3.5-flash',
+          model: dto.trace?.model || 'unknown',
           toolCalls: dto.trace?.toolCalls || [],
           policyReferences: dto.policyRefs || dto.trace?.policyRefs || [],
           decision: dto.decision,
@@ -1013,7 +1033,7 @@ export class RequestsService {
           data: {
             requestId: id,
             mode: dto.trace.mode || 'DECISION',
-            model: dto.trace.model || 'gemini-3.5-flash',
+            model: dto.trace.model || 'unknown',
             toolCalls: dto.trace.toolCalls || [],
             policyReferences: dto.trace.policyRefs || [],
             decision: RequestStatus.ESCALATED,
