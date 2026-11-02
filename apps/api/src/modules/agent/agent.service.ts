@@ -7,6 +7,7 @@ import { AutonomyLevel, RequestType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { UpdateAutonomyDto } from './dto/update-autonomy.dto';
 import { ChatMessageDto } from './dto/chat-message.dto';
+import { currentYear } from '../../common/utils/company-date';
 
 @Injectable()
 export class AgentService {
@@ -112,8 +113,9 @@ export class AgentService {
           message: dto.message,
           conversationId: dto.conversationId,
         }),
-        // AI treo thì Web không bị chờ mãi: quá thời gian sẽ chuyển sang phản hồi dự phòng
-        signal: AbortSignal.timeout(30000),
+        // AI treo thì Web không bị chờ mãi: quá thời gian sẽ chuyển sang phản hồi dự phòng.
+        // 45 giây: AI có thể thử 2 model, mỗi model tối đa LLM_TIMEOUT_S = 20 giây. Web chờ 50 giây.
+        signal: AbortSignal.timeout(45000),
       });
 
       if (response.ok) {
@@ -134,12 +136,10 @@ export class AgentService {
 
     // --- PHẢN HỒI DỰ PHÒNG KHI AI SERVICE KHÔNG TRẢ LỜI ---
     // Chỉ tra cứu dữ liệu thật trong DB, không tự suy đoán; luôn báo rõ đây không phải câu trả lời của AI.
-    const currentYear = Number(
-      new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()),
-    );
+    const year = currentYear();
     const employee = await this.prisma.employee.findUnique({
       where: { id: caller.id },
-      include: { leaveBalances: { where: { year: currentYear }, include: { leaveType: true } } },
+      include: { leaveBalances: { where: { year }, include: { leaveType: true } } },
     });
 
     const userMsg = dto.message.toLowerCase();
@@ -151,21 +151,28 @@ export class AgentService {
       const annualBalance = employee?.leaveBalances.find((b) => b.leaveType.code === 'ANNUAL');
       if (annualBalance) {
         const available = annualBalance.totalDays - annualBalance.usedDays - annualBalance.pendingDays;
-        reply += `Năm ${currentYear} bạn còn ${available} ngày phép năm có thể sử dụng (Đã dùng: ${annualBalance.usedDays} ngày, Đang chờ duyệt: ${annualBalance.pendingDays} ngày).`;
+        reply += `Năm ${year} bạn còn ${available} ngày phép năm có thể sử dụng (Đã dùng: ${annualBalance.usedDays} ngày, Đang chờ duyệt: ${annualBalance.pendingDays} ngày).`;
       } else {
-        reply += `Chưa tìm thấy quỹ phép năm ${currentYear} của bạn, vui lòng liên hệ phòng Nhân sự.`;
+        reply += `Chưa tìm thấy quỹ phép năm ${year} của bạn, vui lòng liên hệ phòng Nhân sự.`;
       }
     }
     // Kiểm tra câu hỏi về quy chế / chính sách công ty
     else {
       const policies = await this.prisma.companyPolicy.findMany({ where: { isActive: true } });
-      // So khớp theo cụm 2 từ liền nhau ("làm thêm", "nghỉ ốm", "đi muộn"): từ đơn như "làm", "giờ" có trong gần như mọi quy chế
-      const phrases = this.wordPairs(userMsg);
+      // So khớp theo cụm 2 từ liền nhau ("làm thêm", "nghỉ ốm", "đi muộn"): từ đơn như "làm", "giờ" có trong gần như mọi quy chế.
+      // Không có cụm nào khớp thì thử từ đơn ("ốm", "muộn"). Chỉ tính cụm/từ hiếm (có trong tối đa 1/3 số quy chế):
+      // "công ty", "nhân viên" có ở khắp nơi nên không giúp chọn quy chế.
+      const texts = policies.map((p) => ` ${this.normalizeWords(`${p.title} ${p.content}`).join(' ')} `);
+      const maxHits = Math.max(1, Math.floor(policies.length / 3));
+      const rareTerms = (terms: string[]) =>
+        terms.filter((term) => {
+          const hits = texts.filter((text) => text.includes(` ${term} `)).length;
+          return hits > 0 && hits <= maxHits;
+        });
+      let terms = rareTerms(this.wordPairs(userMsg));
+      if (terms.length === 0) terms = rareTerms([...new Set(this.normalizeWords(userMsg))]);
       const matched = policies
-        .map((p) => {
-          const text = ` ${this.normalizeWords(`${p.title} ${p.content}`).join(' ')} `;
-          return { policy: p, score: phrases.filter((phrase) => text.includes(` ${phrase} `)).length };
-        })
+        .map((policy, i) => ({ policy, score: terms.filter((term) => texts[i].includes(` ${term} `)).length }))
         .filter((m) => m.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 3)
