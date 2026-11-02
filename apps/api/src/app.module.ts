@@ -8,6 +8,9 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { PolicyModule } from './modules/policy/policy.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { AgentModule } from './modules/agent/agent.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
+import { PositionsModule } from './modules/positions/positions.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Controller()
 class HealthController {
@@ -28,6 +31,9 @@ class HealthController {
     PolicyModule,
     ShiftsModule,
     AgentModule,
+    DepartmentsModule,
+    PositionsModule,
+    AuditModule,
   ],
   controllers: [HealthController],
 })

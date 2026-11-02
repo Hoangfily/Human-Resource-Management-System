@@ -1,14 +1,92 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CreateEmployeeDto } from './dto/create-employee.dto';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async createEmployee(
+    caller: { id: string; role: string },
+    dto: CreateEmployeeDto,
+  ) {
+    if (caller.role !== 'ADMIN' && caller.role !== 'HR') {
+      throw new ForbiddenException(
+        'Chỉ Quản trị viên (ADMIN) hoặc Nhân sự (HR) mới có quyền tạo nhân viên mới',
+      );
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.employee.findUnique({
+      where: { email },
+    });
+    if (existing) {
+      throw new BadRequestException(`Email "${email}" đã tồn tại trong hệ thống`);
+    }
+
+    const employee = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.employee.create({
+        data: {
+          email,
+          fullName: dto.fullName.trim(),
+          phone: dto.phone?.trim() || null,
+          role: (dto.role as any) || 'EMPLOYEE',
+          status: (dto.status as any) || 'ACTIVE',
+          departmentId: dto.departmentId || null,
+          positionId: dto.positionId || null,
+          managerId: dto.managerId || null,
+          defaultShiftId: dto.defaultShiftId || null,
+          joinDate: dto.joinDate ? new Date(dto.joinDate) : new Date(),
+        },
+      });
+
+      // Tự động khởi tạo quỹ phép năm hiện tại (2026) với 12 ngày phép
+      const annualLeaveType = await tx.leaveType.findFirst({
+        where: { code: 'ANNUAL' },
+      });
+
+      if (annualLeaveType) {
+        await tx.leaveBalance.create({
+          data: {
+            employeeId: created.id,
+            leaveTypeId: annualLeaveType.id,
+            year: 2026,
+            totalDays: 12,
+            usedDays: 0,
+            pendingDays: 0,
+          },
+        });
+      }
+
+      // Ghi nhật ký kiểm toán AuditLog
+      await tx.auditLog.create({
+        data: {
+          actorType: 'HUMAN',
+          actorId: caller.id,
+          action: 'CREATE_EMPLOYEE',
+          entityType: 'Employee',
+          entityId: created.id,
+          payload: {
+            fullName: created.fullName,
+            email: created.email,
+            role: created.role,
+            departmentId: created.departmentId,
+            positionId: created.positionId,
+          },
+        },
+      });
+
+      return created;
+    });
+
+    return this.getProfile(employee.id);
+  }
 
   async getProfile(employeeId: string) {
     const employee = await this.prisma.employee.findUnique({

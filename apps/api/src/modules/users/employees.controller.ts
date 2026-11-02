@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -11,11 +12,20 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CreateEmployeeDto } from './dto/create-employee.dto';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard)
 export class EmployeesController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Post()
+  async createEmployee(
+    @CurrentUser() caller: { id: string; role: string },
+    @Body() dto: CreateEmployeeDto,
+  ) {
+    return this.usersService.createEmployee(caller, dto);
+  }
 
   @Get('me')
   async getMe(@CurrentUser('id') employeeId: string) {
