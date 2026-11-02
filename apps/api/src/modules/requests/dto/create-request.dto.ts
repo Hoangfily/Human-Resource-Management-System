@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -32,7 +33,10 @@ export class CreateRequestDto {
   @IsString()
   idempotencyKey?: string;
 
+  // Chỉ được tạo bản nháp hoặc gửi duyệt: các trạng thái khác chỉ đạt được qua luồng duyệt
   @IsOptional()
-  @IsEnum(RequestStatus)
+  @IsIn([RequestStatus.DRAFT, RequestStatus.PENDING], {
+    message: 'Trạng thái khi tạo đơn chỉ có thể là DRAFT hoặc PENDING',
+  })
   status?: RequestStatus;
 }

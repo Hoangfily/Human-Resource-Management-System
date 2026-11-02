@@ -139,7 +139,8 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
     setIsThinking(true);
 
     try {
-      const res: any = await apiClient.post('/agent/chat', { message: text });
+      // Chờ lâu hơn API (45 giây): AI có thể thử 2 model, và khi AI lỗi API vẫn trả phản hồi dự phòng
+      const res: any = await apiClient.post('/agent/chat', { message: text }, { timeout: 50000 });
 
       const agentMessage: ChatMessage = {
         id: `agent-${Date.now()}`,

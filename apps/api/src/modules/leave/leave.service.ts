@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { currentYear } from '../../common/utils/company-date';
 
 @Injectable()
 export class LeaveService {
@@ -15,7 +16,7 @@ export class LeaveService {
     queryYear?: number,
   ) {
     const targetEmployeeId = queryEmployeeId || caller.id;
-    const year = queryYear || 2026;
+    const year = queryYear || currentYear();
 
     // Kiểm tra quyền hạn khi xem quỹ phép người khác
     if (targetEmployeeId !== caller.id) {
@@ -154,7 +155,7 @@ export class LeaveService {
       );
     }
 
-    const year = data.year || 2026;
+    const year = data.year || currentYear();
 
     const balance = await this.prisma.leaveBalance.upsert({
       where: {

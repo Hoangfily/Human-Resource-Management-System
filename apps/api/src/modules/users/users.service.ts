@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { currentYear } from '../../common/utils/company-date';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 
@@ -46,7 +47,7 @@ export class UsersService {
         },
       });
 
-      // Tự động khởi tạo quỹ phép năm hiện tại (2026) với 12 ngày phép
+      // Tự động khởi tạo quỹ phép năm hiện tại với 12 ngày phép
       const annualLeaveType = await tx.leaveType.findFirst({
         where: { code: 'ANNUAL' },
       });
@@ -56,7 +57,7 @@ export class UsersService {
           data: {
             employeeId: created.id,
             leaveTypeId: annualLeaveType.id,
-            year: 2026,
+            year: currentYear(),
             totalDays: 12,
             usedDays: 0,
             pendingDays: 0,
@@ -109,11 +110,11 @@ export class UsersService {
       throw new NotFoundException('Không tìm thấy thông tin nhân viên');
     }
 
-    // Lấy số dư phép năm 2026 hiện tại
+    // Lấy số dư phép năm hiện tại
     const annualBalance = await this.prisma.leaveBalance.findFirst({
       where: {
         employeeId,
-        year: 2026,
+        year: currentYear(),
         leaveType: { code: 'ANNUAL' },
       },
     });

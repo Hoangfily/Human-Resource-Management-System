@@ -298,7 +298,8 @@ export const RequestsPage: React.FC = () => {
         payload.date = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
         payload.issue = values.attendanceIssue || attendanceIssue;
         const rt = values.requestedTime;
-        payload.requestedTime = rt ? (typeof rt === 'string' ? rt : rt.format('HH:mm')) : '08:30';
+        // Form bắt buộc nhập: không tự gán giờ mặc định
+        payload.requestedTime = typeof rt === 'string' ? rt : rt?.format('HH:mm');
         payload.explanation = values.reason;
         if (values.attendanceEventId) {
           payload.attendanceEventId = values.attendanceEventId;
@@ -307,7 +308,8 @@ export const RequestsPage: React.FC = () => {
         payload.scheduleId = values.scheduleId || mySchedules[0]?.id || 'default-schedule';
         payload.newDate = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
         payload.shiftDate = payload.newDate;
-        payload.newShiftTemplateId = values.newShiftTemplateId || (shiftTemplates[0]?.id ?? 'shift-afternoon');
+        // Form bắt buộc chọn ca thật từ /shifts/templates: không gửi id ca giả
+        payload.newShiftTemplateId = values.newShiftTemplateId;
         payload.targetShiftId = payload.newShiftTemplateId;
         const targetTemplate = shiftTemplates.find((t) => t.id === payload.newShiftTemplateId);
         if (targetTemplate) {
@@ -774,7 +776,7 @@ export const RequestsPage: React.FC = () => {
                   attendanceIssue: 'MISSING_CLOCK_IN',
                   otStartTime: dayjs('18:00', 'HH:mm'),
                   otEndTime: dayjs('20:00', 'HH:mm'),
-                  requestedTime: dayjs('08:30', 'HH:mm'),
+                  // Không điền sẵn requestedTime: nhân viên phải tự nhập giờ thật, AI chấm theo giờ này
                 }}
               >
                 {isAdminOrHr && (
@@ -1033,22 +1035,15 @@ export const RequestsPage: React.FC = () => {
                             tooltip="Chọn đúng sự kiện quẹt thẻ bị sai giờ từ máy chấm công để hệ thống điều chỉnh"
                             rules={[{ required: true, message: 'Vui lòng chọn sự kiện chấm công cần điều chỉnh' }]}
                           >
+                            {/* Chỉ cho chọn bản ghi thật: ngày không có lần quẹt thẻ nào thì là quên chấm công, không phải sai giờ */}
                             <Select
                               loading={loadingEvents}
                               placeholder="Chọn lần quẹt thẻ trong ngày..."
-                              options={
-                                dailyAttendanceEvents.length > 0
-                                  ? dailyAttendanceEvents.map((evt, idx) => ({
-                                      value: evt.id,
-                                      label: `Lần ${idx + 1}: ${evt.type === 'CLOCK_IN' ? 'Vào ca (IN)' : 'Ra ca (OUT)'} lúc ${new Date(evt.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`,
-                                    }))
-                                  : [
-                                      {
-                                        value: 'manual-event',
-                                        label: 'Sự kiện quẹt thẻ ngày này (Hệ thống tự đối soát)',
-                                      },
-                                    ]
-                              }
+                              notFoundContent="Ngày này không có lần quẹt thẻ nào. Hãy chọn vấn đề Quên chấm công vào/ra."
+                              options={dailyAttendanceEvents.map((evt, idx) => ({
+                                value: evt.id,
+                                label: `Lần ${idx + 1}: ${evt.type === 'CLOCK_IN' ? 'Vào ca (IN)' : 'Ra ca (OUT)'} lúc ${new Date(evt.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`,
+                              }))}
                             />
                           </Form.Item>
                         </Col>
