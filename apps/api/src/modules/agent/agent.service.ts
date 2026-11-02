@@ -112,6 +112,8 @@ export class AgentService {
           message: dto.message,
           conversationId: dto.conversationId,
         }),
+        // AI treo thì Web không bị chờ mãi: quá thời gian sẽ chuyển sang phản hồi dự phòng
+        signal: AbortSignal.timeout(30000),
       });
 
       if (response.ok) {
@@ -122,42 +124,58 @@ export class AgentService {
           message: data.message || data.reply,
           sources: data.sources || data.citationKeys || [],
           citationKeys: data.citationKeys || data.sources || [],
+          fallback: false,
         };
       }
-    } catch {
-      this.logger.warn(`AI Service tại ${aiBaseUrl} chưa khả dụng. Kích hoạt bộ trợ lý phản hồi dự phòng.`);
+      this.logger.warn(`AI Service trả về HTTP ${response.status} cho /api/chat. Kích hoạt phản hồi dự phòng.`);
+    } catch (err: any) {
+      this.logger.warn(`AI Service tại ${aiBaseUrl} chưa khả dụng (${err?.message}). Kích hoạt phản hồi dự phòng.`);
     }
 
-    // --- FALLBACK THÔNG MINH KHI AI SERVICE CHƯA CHẠY ---
+    // --- PHẢN HỒI DỰ PHÒNG KHI AI SERVICE KHÔNG TRẢ LỜI ---
+    // Chỉ tra cứu dữ liệu thật trong DB, không tự suy đoán; luôn báo rõ đây không phải câu trả lời của AI.
+    const currentYear = Number(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()),
+    );
     const employee = await this.prisma.employee.findUnique({
       where: { id: caller.id },
-      include: { leaveBalances: { include: { leaveType: true } } },
+      include: { leaveBalances: { where: { year: currentYear }, include: { leaveType: true } } },
     });
 
     const userMsg = dto.message.toLowerCase();
-    let reply = `Chào bạn ${employee?.fullName || ''}! Tôi là Trợ lý Nhân sự HR Agent. `;
+    let reply = `Trợ lý AI tạm thời không khả dụng, dưới đây là thông tin tra cứu tự động. `;
     let policyReferences: string[] = [];
 
     // Kiểm tra câu hỏi về số dư phép
     if (userMsg.includes('phép') && (userMsg.includes('còn') || userMsg.includes('bao nhiêu') || userMsg.includes('số dư'))) {
       const annualBalance = employee?.leaveBalances.find((b) => b.leaveType.code === 'ANNUAL');
-      const available = annualBalance
-        ? annualBalance.totalDays - annualBalance.usedDays - annualBalance.pendingDays
-        : 12;
-      reply += `Hiện tại bạn còn ${available} ngày phép năm có thể sử dụng (Đã dùng: ${annualBalance?.usedDays || 0} ngày, Đang chờ duyệt: ${annualBalance?.pendingDays || 0} ngày). Bạn có muốn tôi hỗ trợ tạo đơn xin nghỉ phép không?`;
-    } 
+      if (annualBalance) {
+        const available = annualBalance.totalDays - annualBalance.usedDays - annualBalance.pendingDays;
+        reply += `Năm ${currentYear} bạn còn ${available} ngày phép năm có thể sử dụng (Đã dùng: ${annualBalance.usedDays} ngày, Đang chờ duyệt: ${annualBalance.pendingDays} ngày).`;
+      } else {
+        reply += `Chưa tìm thấy quỹ phép năm ${currentYear} của bạn, vui lòng liên hệ phòng Nhân sự.`;
+      }
+    }
     // Kiểm tra câu hỏi về quy chế / chính sách công ty
     else {
       const policies = await this.prisma.companyPolicy.findMany({ where: { isActive: true } });
-      const matched = policies.filter((p) =>
-        userMsg.split(' ').some((word) => word.length > 2 && (p.title.toLowerCase().includes(word) || p.content.toLowerCase().includes(word))),
-      );
+      // So khớp theo cụm 2 từ liền nhau ("làm thêm", "nghỉ ốm", "đi muộn"): từ đơn như "làm", "giờ" có trong gần như mọi quy chế
+      const phrases = this.wordPairs(userMsg);
+      const matched = policies
+        .map((p) => {
+          const text = ` ${this.normalizeWords(`${p.title} ${p.content}`).join(' ')} `;
+          return { policy: p, score: phrases.filter((phrase) => text.includes(` ${phrase} `)).length };
+        })
+        .filter((m) => m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((m) => m.policy);
 
       if (matched.length > 0) {
         reply += `Dựa theo nội quy công ty:\n- ${matched.map((m) => `${m.title}: ${m.content}`).join('\n- ')}`;
         policyReferences = matched.map((m) => m.key);
       } else {
-        reply += `Tôi có thể hỗ trợ bạn tra cứu quy định nghỉ phép, kiểm tra số dư ngày phép, hướng dẫn tạo đơn hoặc giải trình chấm công. Bạn cần tôi giúp gì nào?`;
+        reply += `Trong lúc này bạn có thể hỏi về số dư ngày phép hoặc tra cứu quy chế theo cụm từ, ví dụ "làm thêm giờ", "nghỉ ốm", "đi muộn".`;
       }
     }
 
@@ -167,8 +185,8 @@ export class AgentService {
         mode: 'CHAT',
         toolCalls: [],
         policyReferences: policyReferences.length > 0 ? policyReferences : undefined,
-        confidence: 0.95,
-        rationale: 'Phản hồi từ cơ sở tri thức chính sách nội bộ',
+        model: 'fallback',
+        rationale: 'Phản hồi dự phòng (AI Service không trả lời), tra cứu trực tiếp từ DB',
       },
     });
 
@@ -180,6 +198,22 @@ export class AgentService {
       citationKeys: policyReferences,
       traceId: trace.id,
       timestamp: new Date().toISOString(),
+      fallback: true,
     };
+  }
+
+  /** Chữ thường, chuẩn hóa Unicode (NFC) và tách theo mọi ký tự không phải chữ/số. */
+  private normalizeWords(text: string): string[] {
+    return text
+      .normalize('NFC')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean);
+  }
+
+  /** Các cụm 2 từ liền nhau trong câu, không trùng lặp. */
+  private wordPairs(text: string): string[] {
+    const words = this.normalizeWords(text);
+    return [...new Set(words.slice(1).map((word, i) => `${words[i]} ${word}`))];
   }
 }
