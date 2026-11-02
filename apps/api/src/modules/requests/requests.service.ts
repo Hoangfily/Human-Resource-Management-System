@@ -1,12 +1,15 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
   ActorType,
   ApprovalStatus,
+  AutonomyLevel,
   Prisma,
   RequestStatus,
   RequestType,
@@ -16,12 +19,86 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { QueryRequestsDto } from './dto/query-requests.dto';
 import { DecisionDto, EscalateDto, ReturnDto } from './dto/decision.dto';
+import { AiDecisionDto } from './dto/ai-decision.dto';
 
 @Injectable()
 export class RequestsService {
+  private readonly logger = new Logger(RequestsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(caller: { id: string; role: string }, dto: CreateRequestDto) {
+  /**
+   * Helper: Trích xuất năm hợp lệ từ chuỗi ngày (YYYY-MM-DD), mặc định là năm hiện tại
+   */
+  private extractYear(dateStr?: string): number {
+    if (!dateStr) return new Date().getFullYear();
+    const d = new Date(dateStr);
+    return isNaN(d.getFullYear()) ? new Date().getFullYear() : d.getFullYear();
+  }
+
+  /**
+   * Helper: Tính số ngày làm việc thực tế (Thứ Hai đến Thứ Sáu, trừ Thứ Bảy & Chủ Nhật theo Spec §3.3)
+   */
+  private countWorkingDays(startDateStr: string, endDateStr: string, halfDay?: string): number {
+    if (startDateStr === endDateStr && (halfDay === 'AM' || halfDay === 'PM')) {
+      return 0.5;
+    }
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+      return 1;
+    }
+
+    let count = 0;
+    const cur = new Date(start);
+    cur.setHours(12, 0, 0, 0);
+    const endMidnight = new Date(end);
+    endMidnight.setHours(12, 0, 0, 0);
+
+    while (cur <= endMidnight) {
+      const day = cur.getDay();
+      if (day >= 1 && day <= 5) {
+        count++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return Math.max(count, 0);
+  }
+
+  /**
+   * Helper: Kích hoạt ngầm AI Service thẩm định đơn PENDING (docs/06 item 3)
+   */
+  private triggerAiEvaluation(requestId: string, correlationId?: string): void {
+    const aiBaseUrl = process.env.AI_API_BASE_URL || 'http://127.0.0.1:8000';
+    const inboundToken = process.env.AI_INBOUND_TOKEN;
+    setTimeout(async () => {
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (inboundToken) {
+          headers['X-Service-Token'] = inboundToken;
+        }
+        if (correlationId) {
+          headers['X-Correlation-Id'] = correlationId;
+        }
+        await fetch(`${aiBaseUrl}/evaluate`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ requestId }),
+          signal: AbortSignal.timeout(60000),
+        });
+      } catch (err: any) {
+        this.logger.warn(`Kích hoạt AI evaluate cho đơn #${requestId} không thành công: ${err?.message}`);
+      }
+    }, 0);
+  }
+
+  async create(caller: { id: string; role: string }, dto: CreateRequestDto, correlationId?: string) {
+    if (caller.role === 'AI') {
+      throw new ForbiddenException('AI không được phép trực tiếp tạo đơn mới');
+    }
+
     let targetEmployeeId = caller.id;
 
     if (dto.employeeId && dto.employeeId !== caller.id) {
@@ -68,6 +145,7 @@ export class RequestsService {
           employee: { include: { department: true, position: true } },
           approvals: { include: { approver: true } },
           statusHistory: { include: { actor: true } },
+          agentTraces: { orderBy: { createdAt: 'desc' }, take: 1 },
         },
       });
       if (existing) {
@@ -75,19 +153,21 @@ export class RequestsService {
       }
     }
 
-    // Xử lý payload và computed
+    // Xử lý payload và computed ngày làm việc (Spec §3.3)
     const payload = { ...dto.payload };
     let daysRequested = 1;
 
     if (dto.type === RequestType.LEAVE) {
-      if (payload.daysCount) {
+      if (payload.startDate && payload.endDate) {
+        daysRequested = this.countWorkingDays(payload.startDate, payload.endDate, payload.halfDay);
+      } else if (payload.daysCount) {
         daysRequested = Number(payload.daysCount);
-      } else if (payload.startDate && payload.endDate) {
-        const start = new Date(payload.startDate);
-        const end = new Date(payload.endDate);
-        const diffMs = end.getTime() - start.getTime();
-        daysRequested = Math.max(1, Math.round(diffMs / (1000 * 3600 * 24)) + 1);
       }
+
+      if (daysRequested === 0) {
+        throw new BadRequestException('Khoảng thời gian nghỉ chỉ gồm các ngày nghỉ cuối tuần hoặc ngày lễ');
+      }
+
       payload.daysCount = daysRequested;
 
       // Chuẩn hóa leaveTypeId nếu client gửi mã code
@@ -105,6 +185,7 @@ export class RequestsService {
     const computed = { daysRequested };
     const status = dto.status || RequestStatus.PENDING;
     const approverId = targetEmployee.managerId;
+    const leaveYear = this.extractYear(payload.startDate);
 
     // Thực hiện transaction tạo đơn và các bản ghi liên quan
     const result = await this.prisma.$transaction(async (tx) => {
@@ -138,7 +219,7 @@ export class RequestsService {
         },
       });
 
-      // Nếu đơn ở trạng thái PENDING và có quản lý trực tiếp, phân công phê duyệt
+      // Phân công duyệt cho Quản lý trực tiếp nếu đơn gửi PENDING
       if (status === RequestStatus.PENDING && approverId) {
         await tx.approval.create({
           data: {
@@ -151,7 +232,7 @@ export class RequestsService {
         });
       }
 
-      // Nếu là đơn nghỉ phép gửi đi, tăng số ngày chờ duyệt pendingDays
+      // Giữ chỗ ngày phép (pendingDays)
       if (status === RequestStatus.PENDING && dto.type === RequestType.LEAVE) {
         const leaveTypeId = payload.leaveTypeId;
         if (leaveTypeId) {
@@ -159,7 +240,7 @@ export class RequestsService {
             where: {
               employeeId: targetEmployeeId,
               leaveTypeId,
-              year: 2026,
+              year: leaveYear,
             },
             data: {
               pendingDays: { increment: daysRequested },
@@ -174,9 +255,15 @@ export class RequestsService {
           employee: { include: { department: true, position: true } },
           approvals: { include: { approver: true } },
           statusHistory: { include: { actor: true }, orderBy: { createdAt: 'asc' } },
+          agentTraces: { orderBy: { createdAt: 'desc' }, take: 1 },
         },
       });
     });
+
+    // Kích hoạt AI đánh giá nếu đơn ở trạng thái PENDING
+    if (status === RequestStatus.PENDING && result) {
+      this.triggerAiEvaluation(result.id, correlationId);
+    }
 
     return this.formatRequest(result!);
   }
@@ -184,12 +271,9 @@ export class RequestsService {
   async findAll(caller: { id: string; role: string }, query: QueryRequestsDto) {
     const where: Prisma.RequestWhereInput = {};
 
-    // 1. Phân quyền hiển thị theo vai trò
+    // 1. Phân quyền xem đơn theo phạm vi tổ chức
     if (caller.role === 'EMPLOYEE') {
-      where.OR = [
-        { employeeId: caller.id },
-        { createdById: caller.id },
-      ];
+      where.employeeId = caller.id;
     } else if (caller.role === 'MANAGER') {
       const subordinates = await this.prisma.employee.findMany({
         where: { managerId: caller.id },
@@ -207,7 +291,7 @@ export class RequestsService {
       } else {
         where.employeeId = { in: allowedIds };
       }
-    } else if (caller.role === 'HR' || caller.role === 'ADMIN') {
+    } else if (['HR', 'ADMIN', 'AI'].includes(caller.role)) {
       if (query.employeeId) {
         where.employeeId = query.employeeId;
       }
@@ -231,6 +315,7 @@ export class RequestsService {
         employee: { include: { department: true, position: true } },
         approvals: { include: { approver: true } },
         statusHistory: { include: { actor: true }, orderBy: { createdAt: 'asc' } },
+        agentTraces: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -247,6 +332,7 @@ export class RequestsService {
         employee: { include: { department: true, position: true } },
         approvals: { include: { approver: true } },
         statusHistory: { include: { actor: true }, orderBy: { createdAt: 'asc' } },
+        agentTraces: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
 
@@ -276,41 +362,44 @@ export class RequestsService {
     return this.formatRequest(request);
   }
 
-  async cancel(caller: { id: string; role: string }, id: string, reason?: string) {
+  async cancel(caller: { id: string; role: string }, id: string, reason?: string, correlationId?: string) {
+    if (caller.role === 'AI') {
+      throw new ForbiddenException('AI không có quyền hủy đơn');
+    }
+
     const request = await this.prisma.request.findUnique({
       where: { id },
-      include: { approvals: true },
+      include: { employee: true },
     });
 
     if (!request) {
       throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
     }
 
-    if (
-      request.employeeId !== caller.id &&
-      request.createdById !== caller.id &&
-      caller.role !== 'ADMIN'
-    ) {
-      throw new ForbiddenException('Bạn chỉ có quyền hủy yêu cầu của chính mình');
+    if (caller.role === 'EMPLOYEE' && request.employeeId !== caller.id) {
+      throw new ForbiddenException('Bạn chỉ có thể hủy đơn của chính mình');
     }
 
     if (
-      request.status === RequestStatus.APPROVED ||
-      request.status === RequestStatus.REJECTED ||
-      request.status === RequestStatus.CANCELLED
+      request.status !== RequestStatus.DRAFT &&
+      request.status !== RequestStatus.PENDING &&
+      request.status !== RequestStatus.ESCALATED
     ) {
       throw new BadRequestException(
-        `Không thể hủy yêu cầu đang ở trạng thái ${request.status}`,
+        `Không thể hủy đơn đang ở trạng thái ${request.status}`,
       );
     }
 
-    const previousStatus = request.status;
     const daysRequested = (request.computed as any)?.daysRequested || 1;
+    const previousStatus = request.status;
+    const leaveYear = this.extractYear((request.payload as any)?.startDate);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.request.update({
         where: { id },
-        data: { status: RequestStatus.CANCELLED },
+        data: {
+          status: RequestStatus.CANCELLED,
+        },
       });
 
       await tx.requestStatusHistory.create({
@@ -336,7 +425,7 @@ export class RequestsService {
             where: {
               employeeId: request.employeeId,
               leaveTypeId,
-              year: 2026,
+              year: leaveYear,
             },
             data: {
               pendingDays: { decrement: daysRequested },
@@ -349,7 +438,7 @@ export class RequestsService {
     return this.findOne(caller, id);
   }
 
-  async submit(caller: { id: string; role: string }, id: string) {
+  async submit(caller: { id: string; role: string }, id: string, correlationId?: string) {
     const request = await this.prisma.request.findUnique({
       where: { id },
       include: { employee: true },
@@ -365,6 +454,7 @@ export class RequestsService {
 
     const daysRequested = (request.computed as any)?.daysRequested || 1;
     const approverId = request.employee.managerId;
+    const leaveYear = this.extractYear((request.payload as any)?.startDate);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.request.update({
@@ -405,7 +495,7 @@ export class RequestsService {
             where: {
               employeeId: request.employeeId,
               leaveTypeId,
-              year: 2026,
+              year: leaveYear,
             },
             data: {
               pendingDays: { increment: daysRequested },
@@ -415,17 +505,295 @@ export class RequestsService {
       }
     });
 
+    // Kích hoạt AI thẩm định ngầm
+    this.triggerAiEvaluation(id, correlationId);
+
     return this.findOne(caller, id);
   }
 
-  // Phê duyệt hoặc từ chối yêu cầu (Manager / HR / Admin)
+  // Cổng AI Service gửi quyết định tự động thẩm định (docs/06 item 2)
+  async aiDecision(
+    caller: { id: string; role: string },
+    id: string,
+    dto: AiDecisionDto,
+    correlationId?: string,
+  ) {
+    if (caller.role !== 'AI') {
+      throw new ForbiddenException('Chỉ AI Service mới có quyền gọi API quyết định tự động');
+    }
+
+    const request = await this.prisma.request.findUnique({
+      where: { id },
+      include: {
+        employee: true,
+        approvals: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
+    }
+
+    // 1. Idempotency: Nếu đơn đã có quyết định hoặc đã xử lý idempotencyKey
+    if (request.status !== RequestStatus.PENDING) {
+      if (
+        dto.idempotencyKey &&
+        (request.status === RequestStatus.APPROVED ||
+          request.status === RequestStatus.REJECTED ||
+          request.status === RequestStatus.ESCALATED)
+      ) {
+        return {
+          id: request.id,
+          status: request.status,
+          applied: request.status === dto.decision,
+          decidedBy: 'AI',
+        };
+      }
+      throw new ConflictException({
+        code: 'INVALID_TRANSITION',
+        message: `Đơn đang ở trạng thái ${request.status}, không thể thẩm định`,
+      });
+    }
+
+    // 2. Kiểm tra lại mức tự chủ AutonomyConfig (Không tin AI vô điều kiện theo Spec §7.3)
+    const autonomyConfig = await this.prisma.autonomyConfig.findUnique({
+      where: { requestType: request.type },
+    });
+    const level = autonomyConfig?.level ?? AutonomyLevel.SUGGEST_ONLY;
+    const minConfidence = autonomyConfig?.minConfidence ?? 0.85;
+
+    const allowedDecisions = {
+      [AutonomyLevel.SUGGEST_ONLY]: new Set<RequestStatus>(),
+      [AutonomyLevel.AUTO_APPROVE_LOW_RISK]: new Set<RequestStatus>([RequestStatus.APPROVED]),
+      [AutonomyLevel.AUTO_DECIDE_LOW_RISK]: new Set<RequestStatus>([
+        RequestStatus.APPROVED,
+        RequestStatus.REJECTED,
+      ]),
+    }[level];
+
+    const violations: string[] = [];
+    if (!allowedDecisions || !allowedDecisions.has(dto.decision)) {
+      violations.push(`Mức tự chủ ${level} không cho phép AI tự động đưa ra quyết định ${dto.decision}`);
+    }
+    if (dto.riskLevel !== RiskLevel.LOW) {
+      violations.push(`Mức rủi ro ${dto.riskLevel} vượt ngưỡng an toàn (chỉ cho phép LOW)`);
+    }
+    if (dto.confidence < minConfidence) {
+      violations.push(`Độ tin cậy ${dto.confidence} thấp hơn ngưỡng cấu hình tối thiểu ${minConfidence}`);
+    }
+
+    // Nếu không thỏa mãn điều kiện tự chủ: Tự động chuyển cấp ESCALATED
+    if (violations.length > 0) {
+      const escalationReason = violations.join('; ');
+      return await this.prisma.$transaction(async (tx) => {
+        let traceId: string | undefined;
+        if (dto.trace) {
+          const trace = await tx.agentTrace.create({
+            data: {
+              requestId: id,
+              mode: dto.trace.mode || 'DECISION',
+              model: dto.trace.model || 'gemini-3.5-flash',
+              toolCalls: dto.trace.toolCalls || [],
+              policyReferences: dto.policyRefs || dto.trace.policyRefs || [],
+              decision: RequestStatus.ESCALATED,
+              riskLevel: dto.riskLevel,
+              confidence: dto.confidence,
+              rationale: dto.trace.rationale || dto.reason,
+              correlationId,
+            },
+          });
+          traceId = trace.id;
+        }
+
+        await tx.request.update({
+          where: { id },
+          data: {
+            status: RequestStatus.ESCALATED,
+            riskLevel: dto.riskLevel,
+            escalationReason,
+          },
+        });
+
+        await tx.requestStatusHistory.create({
+          data: {
+            requestId: id,
+            fromStatus: RequestStatus.PENDING,
+            toStatus: RequestStatus.ESCALATED,
+            actorType: ActorType.AI,
+            actorId: null,
+            reason: escalationReason,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorType: ActorType.AI,
+            actorId: null,
+            action: 'AI_ESCALATED',
+            entityType: 'Request',
+            entityId: id,
+            policyVersion: dto.trace?.policyVersion || '2026.10-draft',
+            correlationId,
+            payload: { violations, proposedDecision: dto.decision },
+          },
+        });
+
+        return {
+          id: request.id,
+          status: RequestStatus.ESCALATED,
+          applied: false,
+          escalationReason,
+        };
+      });
+    }
+
+    // 3. Đạt điều kiện tự chủ: Áp dụng quyết định trong transaction
+    const daysRequested = Number(
+      (request.computed as any)?.daysRequested || (request.payload as any)?.daysCount || 1,
+    );
+    const leaveTypeId = (request.payload as any)?.leaveTypeId;
+    const leaveYear = this.extractYear((request.payload as any)?.startDate);
+
+    return await this.prisma.$transaction(async (tx) => {
+      // Lưu vết AgentTrace
+      const trace = await tx.agentTrace.create({
+        data: {
+          requestId: id,
+          mode: dto.trace?.mode || 'DECISION',
+          model: dto.trace?.model || 'gemini-3.5-flash',
+          toolCalls: dto.trace?.toolCalls || [],
+          policyReferences: dto.policyRefs || dto.trace?.policyRefs || [],
+          decision: dto.decision,
+          riskLevel: dto.riskLevel,
+          confidence: dto.confidence,
+          rationale: dto.trace?.rationale || dto.reason,
+          correlationId,
+        },
+      });
+
+      // Cập nhật trạng thái Request
+      await tx.request.update({
+        where: { id },
+        data: {
+          status: dto.decision,
+          riskLevel: dto.riskLevel,
+        },
+      });
+
+      // Cập nhật hoặc tạo Approval của AI
+      const pendingApproval = request.approvals.find(
+        (a) => a.status === ApprovalStatus.PENDING,
+      );
+      if (pendingApproval) {
+        await tx.approval.update({
+          where: { id: pendingApproval.id },
+          data: {
+            deciderType: ActorType.AI,
+            approverId: null,
+            status:
+              dto.decision === RequestStatus.APPROVED
+                ? ApprovalStatus.APPROVED
+                : ApprovalStatus.REJECTED,
+            reason: dto.reason,
+            riskLevel: dto.riskLevel,
+            confidence: dto.confidence,
+            policyVersion: dto.trace?.policyVersion || '2026.10-draft',
+            agentTraceId: trace.id,
+            decidedAt: new Date(),
+          },
+        });
+      } else {
+        await tx.approval.create({
+          data: {
+            requestId: id,
+            deciderType: ActorType.AI,
+            approverId: null,
+            status:
+              dto.decision === RequestStatus.APPROVED
+                ? ApprovalStatus.APPROVED
+                : ApprovalStatus.REJECTED,
+            reason: dto.reason,
+            riskLevel: dto.riskLevel,
+            confidence: dto.confidence,
+            policyVersion: dto.trace?.policyVersion || '2026.10-draft',
+            agentTraceId: trace.id,
+            decidedAt: new Date(),
+          },
+        });
+      }
+
+      // Ghi lịch sử trạng thái
+      await tx.requestStatusHistory.create({
+        data: {
+          requestId: id,
+          fromStatus: RequestStatus.PENDING,
+          toStatus: dto.decision,
+          actorType: ActorType.AI,
+          actorId: null,
+          reason: dto.reason,
+        },
+      });
+
+      // Ghi AuditLog
+      await tx.auditLog.create({
+        data: {
+          actorType: ActorType.AI,
+          actorId: null,
+          action: 'AI_DECISION',
+          entityType: 'Request',
+          entityId: id,
+          policyVersion: dto.trace?.policyVersion || '2026.10-draft',
+          correlationId,
+          payload: { decision: dto.decision, riskLevel: dto.riskLevel, confidence: dto.confidence },
+        },
+      });
+
+      // Cập nhật Quỹ phép
+      if (request.type === RequestType.LEAVE && leaveTypeId) {
+        if (dto.decision === RequestStatus.APPROVED) {
+          await tx.leaveBalance.updateMany({
+            where: {
+              employeeId: request.employeeId,
+              leaveTypeId,
+              year: leaveYear,
+            },
+            data: {
+              pendingDays: { decrement: daysRequested },
+              usedDays: { increment: daysRequested },
+            },
+          });
+        } else if (dto.decision === RequestStatus.REJECTED) {
+          await tx.leaveBalance.updateMany({
+            where: {
+              employeeId: request.employeeId,
+              leaveTypeId,
+              year: leaveYear,
+            },
+            data: {
+              pendingDays: { decrement: daysRequested },
+            },
+          });
+        }
+      }
+
+      return {
+        id: request.id,
+        status: dto.decision,
+        applied: true,
+        decidedBy: 'AI',
+      };
+    });
+  }
+
+  // Ra quyết định phê duyệt hoặc từ chối bởi Con người (Manager / HR / Admin)
   async decision(
     caller: { id: string; role: string },
     id: string,
     dto: DecisionDto,
+    correlationId?: string,
   ) {
-    if (caller.role === 'EMPLOYEE') {
-      throw new ForbiddenException('Nhân viên không có quyền phê duyệt đơn');
+    if (caller.role === 'EMPLOYEE' || caller.role === 'AI') {
+      throw new ForbiddenException('Nhân viên hoặc AI không có quyền thực hiện duyệt thủ công của con người');
     }
 
     if (
@@ -486,6 +854,7 @@ export class RequestsService {
 
     const daysRequested = (request.computed as any)?.daysRequested || 1;
     const leaveTypeId = (request.payload as any)?.leaveTypeId;
+    const leaveYear = this.extractYear((request.payload as any)?.startDate);
     const previousStatus = request.status;
 
     await this.prisma.$transaction(async (tx) => {
@@ -504,6 +873,7 @@ export class RequestsService {
 
       const decisionReason =
         dto.reason?.trim() ||
+        dto.note?.trim() ||
         (dto.status === RequestStatus.APPROVED
           ? 'Phê duyệt chấp thuận yêu cầu'
           : 'Từ chối yêu cầu');
@@ -516,10 +886,8 @@ export class RequestsService {
               dto.status === RequestStatus.APPROVED
                 ? ApprovalStatus.APPROVED
                 : ApprovalStatus.REJECTED,
-            approverId: caller.id,
-            deciderType: ActorType.HUMAN,
-            decidedAt: new Date(),
             reason: decisionReason,
+            decidedAt: new Date(),
           },
         });
       } else {
@@ -528,18 +896,18 @@ export class RequestsService {
             requestId: id,
             step: 1,
             approverId: caller.id,
-            deciderType: ActorType.HUMAN,
             status:
               dto.status === RequestStatus.APPROVED
                 ? ApprovalStatus.APPROVED
                 : ApprovalStatus.REJECTED,
-            decidedAt: new Date(),
             reason: decisionReason,
+            deciderType: ActorType.HUMAN,
+            decidedAt: new Date(),
           },
         });
       }
 
-      // 3. Ghi lịch sử thay đổi trạng thái
+      // 3. Ghi lịch sử trạng thái RequestStatusHistory
       await tx.requestStatusHistory.create({
         data: {
           requestId: id,
@@ -559,7 +927,7 @@ export class RequestsService {
             where: {
               employeeId: request.employeeId,
               leaveTypeId,
-              year: 2026,
+              year: leaveYear,
             },
             data: {
               pendingDays: { decrement: daysRequested },
@@ -572,7 +940,7 @@ export class RequestsService {
             where: {
               employeeId: request.employeeId,
               leaveTypeId,
-              year: 2026,
+              year: leaveYear,
             },
             data: {
               pendingDays: { decrement: daysRequested },
@@ -592,10 +960,8 @@ export class RequestsService {
               : 'REQUEST_REJECTED',
           entityType: 'Request',
           entityId: id,
-          payload: {
-            before: { status: previousStatus },
-            after: { status: dto.status, reason: decisionReason },
-          },
+          correlationId,
+          payload: { reason: decisionReason },
         },
       });
     });
@@ -603,11 +969,12 @@ export class RequestsService {
     return this.findOne(caller, id);
   }
 
-  // Chuyển cấp thẩm định lên HR (Manager / HR / Admin)
+  // Chuyển cấp thẩm định lên HR (Manager / HR / Admin / AI, docs/06 item 4)
   async escalate(
     caller: { id: string; role: string },
     id: string,
     dto: EscalateDto,
+    correlationId?: string,
   ) {
     if (caller.role === 'EMPLOYEE') {
       throw new ForbiddenException('Nhân viên không có quyền chuyển cấp thẩm định');
@@ -625,11 +992,40 @@ export class RequestsService {
       throw new NotFoundException(`Không tìm thấy yêu cầu có mã #${id}`);
     }
 
-    if (request.status !== RequestStatus.PENDING) {
-      throw new BadRequestException('Chỉ có thể chuyển cấp thẩm định cho đơn ở trạng thái PENDING');
+    if (request.status !== RequestStatus.PENDING && request.status !== RequestStatus.DRAFT) {
+      if (request.status === RequestStatus.ESCALATED) {
+        return this.findOne(caller, id);
+      }
+      throw new ConflictException({
+        code: 'INVALID_TRANSITION',
+        message: `Chỉ có thể chuyển cấp thẩm định cho đơn ở trạng thái PENDING hoặc DRAFT (hiện tại: ${request.status})`,
+      });
     }
 
+    const isAi = caller.role === 'AI';
+    const actorType = isAi ? ActorType.AI : ActorType.HUMAN;
+    const actorId = isAi ? null : caller.id;
+
     await this.prisma.$transaction(async (tx) => {
+      let traceId: string | undefined;
+      if (isAi && dto.trace) {
+        const trace = await tx.agentTrace.create({
+          data: {
+            requestId: id,
+            mode: dto.trace.mode || 'DECISION',
+            model: dto.trace.model || 'gemini-3.5-flash',
+            toolCalls: dto.trace.toolCalls || [],
+            policyReferences: dto.trace.policyRefs || [],
+            decision: RequestStatus.ESCALATED,
+            riskLevel: dto.riskLevel || RiskLevel.HIGH,
+            confidence: dto.trace.confidence || null,
+            rationale: dto.trace.rationale || dto.reason,
+            correlationId,
+          },
+        });
+        traceId = trace.id;
+      }
+
       await tx.request.update({
         where: { id },
         data: {
@@ -647,6 +1043,7 @@ export class RequestsService {
           where: { id: pendingApproval.id },
           data: {
             reason: `Chuyển cấp: ${dto.reason}`,
+            agentTraceId: traceId,
           },
         });
       }
@@ -654,21 +1051,23 @@ export class RequestsService {
       await tx.requestStatusHistory.create({
         data: {
           requestId: id,
-          fromStatus: RequestStatus.PENDING,
+          fromStatus: request.status,
           toStatus: RequestStatus.ESCALATED,
-          actorType: ActorType.HUMAN,
-          actorId: caller.id,
+          actorType,
+          actorId,
           reason: dto.reason,
         },
       });
 
       await tx.auditLog.create({
         data: {
-          actorType: ActorType.HUMAN,
-          actorId: caller.id,
+          actorType,
+          actorId,
           action: 'REQUEST_ESCALATED',
           entityType: 'Request',
           entityId: id,
+          policyVersion: dto.trace?.policyVersion || '2026.10-draft',
+          correlationId,
           payload: { reason: dto.reason, riskLevel: dto.riskLevel },
         },
       });
@@ -682,9 +1081,10 @@ export class RequestsService {
     caller: { id: string; role: string },
     id: string,
     dto: ReturnDto,
+    correlationId?: string,
   ) {
-    if (caller.role === 'EMPLOYEE') {
-      throw new ForbiddenException('Nhân viên không có quyền trả lại đơn');
+    if (caller.role === 'EMPLOYEE' || caller.role === 'AI') {
+      throw new ForbiddenException('Nhân viên hoặc AI không có quyền trả lại đơn');
     }
 
     const request = await this.prisma.request.findUnique({
@@ -701,12 +1101,14 @@ export class RequestsService {
 
     const daysRequested = (request.computed as any)?.daysRequested || 1;
     const leaveTypeId = (request.payload as any)?.leaveTypeId;
+    const leaveYear = this.extractYear((request.payload as any)?.startDate);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.request.update({
         where: { id },
         data: {
           status: RequestStatus.DRAFT,
+          escalationReason: dto.reason,
         },
       });
 
@@ -727,13 +1129,25 @@ export class RequestsService {
           where: {
             employeeId: request.employeeId,
             leaveTypeId,
-            year: 2026,
+            year: leaveYear,
           },
           data: {
             pendingDays: { decrement: daysRequested },
           },
         });
       }
+
+      await tx.auditLog.create({
+        data: {
+          actorType: ActorType.HUMAN,
+          actorId: caller.id,
+          action: 'REQUEST_RETURNED_TO_DRAFT',
+          entityType: 'Request',
+          entityId: id,
+          correlationId,
+          payload: { reason: dto.reason },
+        },
+      });
     });
 
     return this.findOne(caller, id);
@@ -783,6 +1197,7 @@ export class RequestsService {
         employee: { include: { department: true, position: true } },
         approvals: { include: { approver: true } },
         statusHistory: { include: { actor: true }, orderBy: { createdAt: 'asc' } },
+        agentTraces: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -791,17 +1206,23 @@ export class RequestsService {
     return requests.map((r) => this.formatRequest(r));
   }
 
-  // Định dạng dữ liệu chuẩn hóa trả về cho Frontend
+  // Định dạng dữ liệu chuẩn hóa trả về cho Frontend (loại bỏ dữ liệu giả theo docs/06)
   private formatRequest(req: any) {
     const activeApproval = req.approvals?.[0];
+    const aiApproval = (req.approvals || []).find((a: any) => a.deciderType === ActorType.AI);
+    const aiTrace = (req.agentTraces || [])[0];
+
     const timeline = (req.statusHistory || []).map((h: any) => ({
       title: this.getTimelineTitle(h.toStatus),
-      actor: h.actor?.fullName || (h.actorType === 'AI' ? 'HR AI Copilot' : 'Hệ thống'),
+      actor: h.actor?.fullName || (h.actorType === ActorType.AI ? 'Trợ lý AI' : 'Hệ thống'),
       actorType: h.actorType,
       timestamp: new Date(h.createdAt).toLocaleString('vi-VN'),
       description: h.reason || '',
       status: this.getTimelineStatus(h.toStatus),
     }));
+
+    const aiConfidence = aiApproval?.confidence ?? aiTrace?.confidence ?? null;
+    const aiRationale = aiApproval?.reason ?? aiTrace?.rationale ?? null;
 
     return {
       id: req.id,
@@ -815,13 +1236,10 @@ export class RequestsService {
       payload: req.payload,
       computed: req.computed,
       attachments: req.attachments,
-      riskLevel: req.riskLevel || 'LOW',
-      aiRiskScore: req.riskLevel === 'HIGH' ? 0.8 : req.riskLevel === 'MEDIUM' ? 0.4 : 0.05,
-      aiConfidence: 0.95,
-      aiRationale:
-        req.type === RequestType.LEAVE
-          ? 'Đơn được khởi tạo hợp lệ và kiểm tra tính sẵn sàng của quỹ phép.'
-          : 'Đơn đã qua kiểm tra hợp lệ.',
+      riskLevel: req.riskLevel ?? aiApproval?.riskLevel ?? null,
+      aiRiskScore: (req.riskLevel || aiApproval?.riskLevel) ? ((req.riskLevel || aiApproval?.riskLevel) === RiskLevel.HIGH ? 0.8 : (req.riskLevel || aiApproval?.riskLevel) === RiskLevel.MEDIUM ? 0.4 : 0.05) : null,
+      aiConfidence,
+      aiRationale,
       approverId: activeApproval?.approverId,
       approverName: activeApproval?.approver?.fullName,
       rejectionReason: req.status === RequestStatus.REJECTED ? activeApproval?.reason : undefined,

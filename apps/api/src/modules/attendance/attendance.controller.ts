@@ -67,4 +67,17 @@ export class AttendanceController {
       year ? parseInt(year, 10) : undefined,
     );
   }
+
+  /**
+   * Lấy danh sách sự kiện quẹt thẻ thô (raw events) của nhân viên (Dành cho AI và HR, docs/06 item 5)
+   */
+  @Get('events')
+  async getRawEvents(
+    @CurrentUser() caller: { id: string; role: string },
+    @Query('employeeId') employeeId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.attendanceService.getRawEvents(caller, { employeeId, from, to });
+  }
 }

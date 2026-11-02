@@ -180,6 +180,62 @@ export const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                         </Tag>
                       </Descriptions.Item>
                     )}
+
+                    {/* Chi tiết cho đơn Làm thêm giờ (OVERTIME) */}
+                    {(request.type === RequestType.Overtime || payload.startTime) && (
+                      <>
+                        <Descriptions.Item label="Ngày làm thêm (OT)">
+                          <strong>{payload.date}</strong>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Khung giờ OT">
+                          <Tag color="orange" style={{ borderRadius: 6, fontWeight: 600 }}>
+                            {payload.startTime} – {payload.endTime}
+                          </Tag>
+                        </Descriptions.Item>
+                      </>
+                    )}
+
+                    {/* Chi tiết cho đơn Giải trình chấm công (ATTENDANCE_EXPLANATION) */}
+                    {request.type === RequestType.AttendanceExplanation && (
+                      <>
+                        <Descriptions.Item label="Ngày chấm công">
+                          <strong>{payload.date}</strong>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Loại sự vụ">
+                          <Tag color="purple" style={{ borderRadius: 6, fontWeight: 600 }}>
+                            {payload.issue === 'MISSING_CLOCK_IN' ? 'Quên chấm công vào' :
+                             payload.issue === 'MISSING_CLOCK_OUT' ? 'Quên chấm công ra' :
+                             payload.issue === 'LATE' ? 'Giải trình đi muộn' :
+                             payload.issue === 'EARLY_LEAVE' ? 'Giải trình về sớm' :
+                             payload.issue === 'WRONG_TIME' ? 'Sai giờ chấm công' : (payload.issue || 'Chấm công')}
+                          </Tag>
+                        </Descriptions.Item>
+                        {payload.requestedTime && (
+                          <Descriptions.Item label="Giờ đề xuất ghi nhận">
+                            <strong>{payload.requestedTime}</strong>
+                          </Descriptions.Item>
+                        )}
+                      </>
+                    )}
+
+                    {/* Chi tiết cho đơn Đổi ca làm việc (SHIFT_CHANGE) */}
+                    {request.type === RequestType.ShiftChange && (
+                      <>
+                        <Descriptions.Item label="Ngày đổi ca">
+                          <strong>{payload.newDate || payload.shiftDate || payload.date}</strong>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Ca chuyển đến">
+                          <Tag color="blue" style={{ borderRadius: 6, fontWeight: 600 }}>
+                            {payload.newShiftTemplateName || payload.newShiftTemplateId || payload.targetShiftId || 'Ca mới'}
+                          </Tag>
+                        </Descriptions.Item>
+                        {payload.swapWithEmployeeId && (
+                          <Descriptions.Item label="Đổi với đồng nghiệp">
+                            <Text strong>{payload.swapWithEmployeeName || payload.swapWithEmployeeId}</Text>
+                          </Descriptions.Item>
+                        )}
+                      </>
+                    )}
                   </Descriptions>
 
                   {/* Khối Lý do chi tiết */}

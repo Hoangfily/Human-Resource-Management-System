@@ -99,10 +99,14 @@ export class AgentService {
     const aiBaseUrl = process.env.AI_API_BASE_URL || 'http://127.0.0.1:8000';
 
     try {
-      // Gọi sang FastAPI AI Service nếu đang chạy
+      // Gọi sang FastAPI AI Service nếu đang chạy (kèm X-Service-Token theo docs/06 item 7)
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (process.env.AI_INBOUND_TOKEN) {
+        headers['X-Service-Token'] = process.env.AI_INBOUND_TOKEN;
+      }
       const response = await fetch(`${aiBaseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           employeeId: caller.id,
           message: dto.message,

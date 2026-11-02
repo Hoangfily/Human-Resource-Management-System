@@ -34,6 +34,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-hr_agent}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-hr_agent}?schema=public
       REDIS_URL: redis://redis:6379/0
       AI_API_BASE_URL: http://ai:8000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+      AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:-}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:

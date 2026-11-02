@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { AttendanceEventType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CheckInDto } from './dto/check-in.dto';
@@ -183,7 +183,7 @@ export class AttendanceService {
     }
 
     return {
-      date: now.toISOString().split('T')[0],
+      date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(now),
       isCheckedIn,
       isCheckedOut,
       clockInTime: firstIn?.timestamp || null,
@@ -216,7 +216,7 @@ export class AttendanceService {
     // Gom nhóm theo từng ngày (YYYY-MM-DD)
     const groupedByDate: Record<string, typeof events> = {};
     for (const evt of events) {
-      const dateKey = evt.timestamp.toISOString().split('T')[0];
+      const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(evt.timestamp);
       if (!groupedByDate[dateKey]) {
         groupedByDate[dateKey] = [];
       }
@@ -256,5 +256,56 @@ export class AttendanceService {
       totalDaysWorked: history.length,
       history,
     };
+  }
+  /**
+   * 5. Lấy danh sách sự kiện quẹt thẻ thô (raw events) cho AI & HR (docs/06 item 5)
+   */
+  async getRawEvents(
+    caller: { id: string; role: string },
+    query: { employeeId?: string; from?: string; to?: string },
+  ) {
+    const targetEmployeeId = query.employeeId || caller.id;
+
+    if (caller.role === 'EMPLOYEE' && targetEmployeeId !== caller.id) {
+      throw new ForbiddenException('Nhân viên chỉ có quyền xem dữ liệu chấm công của chính mình');
+    }
+
+    if (caller.role === 'MANAGER') {
+      const isSubordinate =
+        targetEmployeeId === caller.id ||
+        (await this.prisma.employee.count({
+          where: { id: targetEmployeeId, managerId: caller.id },
+        })) > 0;
+      if (!isSubordinate) {
+        throw new ForbiddenException('Quản lý chỉ có quyền xem dữ liệu của nhân viên trực thuộc');
+      }
+    }
+
+    const where: any = {
+      employeeId: targetEmployeeId,
+    };
+
+    if (query.from || query.to) {
+      where.timestamp = {};
+      if (query.from) {
+        where.timestamp.gte = new Date(`${query.from.slice(0, 10)}T00:00:00.000Z`);
+      }
+      if (query.to) {
+        where.timestamp.lte = new Date(`${query.to.slice(0, 10)}T23:59:59.999Z`);
+      }
+    }
+
+    const events = await this.prisma.attendanceEvent.findMany({
+      where,
+      orderBy: { timestamp: 'asc' },
+      select: {
+        id: true,
+        employeeId: true,
+        type: true,
+        timestamp: true,
+      },
+    });
+
+    return events;
   }
 }

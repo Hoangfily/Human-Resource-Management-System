@@ -59,10 +59,11 @@ export class ShiftsController {
   async getSchedules(
     @CurrentUser() caller: { id: string; role: string },
     @Query('employeeId') employeeId?: string,
+    @Query('departmentId') departmentId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.shiftsService.getSchedules(caller, { employeeId, from, to });
+    return this.shiftsService.getSchedules(caller, { employeeId, departmentId, from, to });
   }
 
   /**

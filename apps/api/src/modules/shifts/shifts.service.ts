@@ -51,29 +51,54 @@ export class ShiftsService {
    */
   async getSchedules(
     caller: { id: string; role: string },
-    query: { employeeId?: string; from?: string; to?: string },
+    query: { employeeId?: string; departmentId?: string; from?: string; to?: string },
   ) {
-    const targetEmployeeId = query.employeeId || caller.id;
+    const where: any = {};
 
-    // Nhân viên chỉ được xem lịch của mình, trừ khi là Manager / HR / Admin
-    if (
-      caller.role === 'EMPLOYEE' &&
-      targetEmployeeId !== caller.id
-    ) {
-      throw new ForbiddenException('Bạn chỉ có quyền xem lịch phân ca của chính mình.');
+    if (query.departmentId) {
+      if (caller.role === 'EMPLOYEE') {
+        throw new ForbiddenException('Nhân viên không có quyền xem lịch phân ca theo phòng ban');
+      }
+      if (caller.role === 'MANAGER') {
+        const me = await this.prisma.employee.findUnique({
+          where: { id: caller.id },
+          select: { departmentId: true },
+        });
+        if (me?.departmentId !== query.departmentId) {
+          throw new ForbiddenException('Quản lý chỉ có quyền xem lịch phân ca của phòng ban mình');
+        }
+      }
+      where.employee = {
+        departmentId: query.departmentId,
+      };
+      if (query.employeeId) {
+        where.employeeId = query.employeeId;
+      }
+    } else {
+      const targetEmployeeId = query.employeeId || caller.id;
+
+      if (caller.role === 'EMPLOYEE' && targetEmployeeId !== caller.id) {
+        throw new ForbiddenException('Bạn chỉ có quyền xem lịch phân ca của chính mình.');
+      }
+      if (caller.role === 'MANAGER' && targetEmployeeId !== caller.id) {
+        const isSubordinate =
+          (await this.prisma.employee.count({
+            where: { id: targetEmployeeId, managerId: caller.id },
+          })) > 0;
+        if (!isSubordinate) {
+          throw new ForbiddenException('Quản lý chỉ có quyền xem lịch của nhân viên trực thuộc');
+        }
+      }
+      where.employeeId = targetEmployeeId;
     }
-
-    const where: any = {
-      employeeId: targetEmployeeId,
-    };
 
     if (query.from || query.to) {
       where.date = {};
       if (query.from) {
-        where.date.gte = new Date(query.from);
+        where.date.gte = new Date(`${query.from.slice(0, 10)}T00:00:00.000Z`);
       }
       if (query.to) {
-        where.date.lte = new Date(query.to);
+        where.date.lte = new Date(`${query.to.slice(0, 10)}T23:59:59.999Z`);
       }
     }
 
@@ -157,8 +182,7 @@ export class ShiftsService {
       );
     }
 
-    const targetDate = new Date(dto.date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = new Date(`${dto.date.slice(0, 10)}T00:00:00.000Z`);
 
     return this.prisma.schedule.upsert({
       where: {

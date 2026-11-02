@@ -10,6 +10,7 @@ import {
   Form,
   Select,
   DatePicker,
+  TimePicker,
   Input,
   Row,
   Col,
@@ -17,7 +18,6 @@ import {
   App as AntdApp,
   Segmented,
   Tooltip,
-  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -29,7 +29,8 @@ import {
   StopOutlined,
   SearchOutlined,
   ReloadOutlined,
-  CalendarOutlined,
+  ClockCircleOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { RequestStatus, RequestType } from '@hr-agent/shared';
@@ -40,7 +41,7 @@ import { RequestDetailModal } from '../../components/requests';
 import { useAuth } from '../auth/AuthContext';
 import apiClient from '../../lib/api-client';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 export const RequestsPage: React.FC = () => {
   const { message } = AntdApp.useApp();
@@ -56,6 +57,10 @@ export const RequestsPage: React.FC = () => {
   })();
   const [employees, setEmployees] = useState<Array<{ id: string; fullName: string; department?: { name: string }; departmentName?: string }>>([]);
 
+  // Tải danh sách ca mẫu và đồng nghiệp phục vụ đổi ca
+  const [shiftTemplates, setShiftTemplates] = useState<Array<{ id: string; name: string; code: string; startTime: string; endTime: string }>>([]);
+  const [colleagues, setColleagues] = useState<Array<{ id: string; fullName: string; employeeCode?: string }>>([]);
+
   // Tải danh sách nhân viên cho Admin / HR
   useEffect(() => {
     if (isAdminOrHr) {
@@ -69,6 +74,27 @@ export const RequestsPage: React.FC = () => {
         .catch(() => {});
     }
   }, [isAdminOrHr]);
+
+  // Tải mẫu ca và đồng nghiệp
+  useEffect(() => {
+    apiClient
+      .get<any[]>('/shifts/templates')
+      .then((res: any) => {
+        if (Array.isArray(res)) {
+          setShiftTemplates(res);
+        }
+      })
+      .catch(() => {});
+
+    apiClient
+      .get<any[]>('/shifts/colleagues')
+      .then((res: any) => {
+        if (Array.isArray(res)) {
+          setColleagues(res);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Bộ lọc & tìm kiếm
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -146,7 +172,7 @@ export const RequestsPage: React.FC = () => {
   const isOverLimit = selectedType === RequestType.Leave && daysCount > availableDays;
 
   // Gửi tạo đơn mới lên API
-  const handleCreateSubmit = async (values: { reason: string; employeeId?: string }) => {
+  const handleCreateSubmit = async (values: any) => {
     if (selectedType === RequestType.Leave && !dateRange) {
       message.error('Vui lòng chọn khoảng thời gian nghỉ phép!');
       return;
@@ -156,21 +182,35 @@ export const RequestsPage: React.FC = () => {
     try {
       const payload: Record<string, any> = {
         reason: values.reason,
-        daysCount,
       };
 
       if (selectedType === RequestType.Leave) {
         payload.leaveType = selectedLeaveType;
+        payload.daysCount = daysCount;
         if (dateRange && dateRange[0] && dateRange[1]) {
           payload.startDate = dateRange[0].format('YYYY-MM-DD');
           payload.endDate = dateRange[1].format('YYYY-MM-DD');
         }
+      } else if (selectedType === RequestType.Overtime) {
+        payload.date = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
+        const st = values.otStartTime;
+        const et = values.otEndTime;
+        payload.startTime = st ? (typeof st === 'string' ? st : st.format('HH:mm')) : '18:00';
+        payload.endTime = et ? (typeof et === 'string' ? et : et.format('HH:mm')) : '20:00';
       } else if (selectedType === RequestType.AttendanceExplanation) {
         payload.date = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
-        payload.explanationType = 'FORGOT_CHECK_IN';
+        payload.issue = values.attendanceIssue || 'MISSING_CLOCK_IN';
+        const rt = values.requestedTime;
+        payload.requestedTime = rt ? (typeof rt === 'string' ? rt : rt.format('HH:mm')) : '08:30';
+        payload.explanation = values.reason;
       } else if (selectedType === RequestType.ShiftChange) {
-        payload.shiftDate = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
-        payload.targetShiftId = 'shift-afternoon';
+        payload.newDate = singleDate?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD');
+        payload.shiftDate = payload.newDate;
+        payload.newShiftTemplateId = values.newShiftTemplateId || (shiftTemplates[0]?.id ?? 'shift-afternoon');
+        payload.targetShiftId = payload.newShiftTemplateId;
+        if (values.swapWithEmployeeId) {
+          payload.swapWithEmployeeId = values.swapWithEmployeeId;
+        }
       }
 
       const res = await apiClient.post<RequestItem>('/requests', {
@@ -328,6 +368,11 @@ export const RequestsPage: React.FC = () => {
                 Thời gian: {days} ngày làm việc
               </div>
             )}
+            {payload?.startTime && payload?.endTime && (
+              <div style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
+                Khung giờ: {payload.startTime} - {payload.endTime}
+              </div>
+            )}
           </div>
         );
       },
@@ -455,7 +500,7 @@ export const RequestsPage: React.FC = () => {
             Quản lý Đơn từ & Yêu cầu
           </div>
           <div style={{ fontSize: '13.5px', color: '#6b7280', marginTop: 4 }}>
-            Tạo đơn nghỉ phép, giải trình công, đổi ca và xem xét thẩm định tự động từ AI Agent.
+            Tạo đơn nghỉ phép, làm thêm giờ, giải trình công, đổi ca và xem xét thẩm định tự động từ AI Agent.
           </div>
         </div>
         <Space size={10}>
@@ -557,7 +602,7 @@ export const RequestsPage: React.FC = () => {
               description={
                 searchKeyword || statusFilter !== 'ALL'
                   ? 'Thử điều chỉnh lại từ khóa tìm kiếm hoặc chọn bộ lọc trạng thái khác.'
-                  : 'Khởi tạo đơn xin nghỉ phép, giải trình chấm công hoặc đề xuất đổi ca làm việc ngay.'
+                  : 'Khởi tạo đơn xin nghỉ phép, làm thêm giờ, giải trình chấm công hoặc đề xuất đổi ca làm việc ngay.'
               }
               actionText="Tạo đơn mới ngay"
               onAction={() => setActiveTab('create')}
@@ -595,7 +640,17 @@ export const RequestsPage: React.FC = () => {
               }
               style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
             >
-              <Form form={form} layout="vertical" onFinish={handleCreateSubmit}>
+              <Form
+                form={form}
+                layout="vertical"
+                onFinish={handleCreateSubmit}
+                initialValues={{
+                  attendanceIssue: 'MISSING_CLOCK_IN',
+                  otStartTime: dayjs('18:00', 'HH:mm'),
+                  otEndTime: dayjs('20:00', 'HH:mm'),
+                  requestedTime: dayjs('08:30', 'HH:mm'),
+                }}
+              >
                 {isAdminOrHr && (
                   <Row gutter={16}>
                     <Col xs={24}>
@@ -634,14 +689,16 @@ export const RequestsPage: React.FC = () => {
                         value={selectedType}
                         onChange={(val) => setSelectedType(val)}
                         options={[
-                          { value: RequestType.Leave, label: 'Nghỉ phép' },
-                          { value: RequestType.AttendanceExplanation, label: 'Giải trình chấm công' },
-                          { value: RequestType.ShiftChange, label: 'Đổi ca làm việc' },
+                          { value: RequestType.Leave, label: 'Nghỉ phép (Leave)' },
+                          { value: RequestType.Overtime, label: 'Làm thêm giờ (Overtime - OT)' },
+                          { value: RequestType.AttendanceExplanation, label: 'Giải trình chấm công (Attendance)' },
+                          { value: RequestType.ShiftChange, label: 'Đổi ca làm việc (Shift Change)' },
                         ]}
                       />
                     </Form.Item>
                   </Col>
 
+                  {/* Cấu hình phụ theo từng loại đơn */}
                   {selectedType === RequestType.Leave && (
                     <Col xs={24} sm={12}>
                       <Form.Item label="Loại nghỉ phép" required>
@@ -657,9 +714,30 @@ export const RequestsPage: React.FC = () => {
                       </Form.Item>
                     </Col>
                   )}
+
+                  {selectedType === RequestType.AttendanceExplanation && (
+                    <Col xs={24} sm={12}>
+                      <Form.Item
+                        label="Vấn đề cần giải trình"
+                        name="attendanceIssue"
+                        rules={[{ required: true, message: 'Vui lòng chọn vấn đề cần giải trình' }]}
+                      >
+                        <Select
+                          options={[
+                            { value: 'MISSING_CLOCK_IN', label: 'Quên chấm công vào ca' },
+                            { value: 'MISSING_CLOCK_OUT', label: 'Quên chấm công ra ca' },
+                            { value: 'LATE', label: 'Đi làm muộn' },
+                            { value: 'EARLY_LEAVE', label: 'Về sớm' },
+                            { value: 'WRONG_TIME', label: 'Sai lệch thông tin giờ quẹt thẻ' },
+                          ]}
+                        />
+                      </Form.Item>
+                    </Col>
+                  )}
                 </Row>
 
-                {selectedType === RequestType.Leave ? (
+                {/* Các trường nhập cụ thể cho từng loại đơn */}
+                {selectedType === RequestType.Leave && (
                   <Row gutter={16}>
                     <Col xs={24} sm={16}>
                       <Form.Item label="Thời gian áp dụng (Từ ngày - Đến ngày)" required>
@@ -685,15 +763,109 @@ export const RequestsPage: React.FC = () => {
                       </Form.Item>
                     </Col>
                   </Row>
-                ) : (
+                )}
+
+                {selectedType === RequestType.Overtime && (
                   <Row gutter={16}>
-                    <Col xs={24} sm={16}>
-                      <Form.Item label="Ngày áp dụng" required>
+                    <Col xs={24} sm={10}>
+                      <Form.Item label="Ngày làm thêm (OT)" required>
                         <DatePicker
                           style={{ width: '100%' }}
                           value={singleDate}
                           onChange={(d) => setSingleDate(d)}
                           format="DD/MM/YYYY"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} sm={7}>
+                      <Form.Item
+                        label="Giờ bắt đầu"
+                        name="otStartTime"
+                        rules={[{ required: true, message: 'Chọn giờ bắt đầu' }]}
+                      >
+                        <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} sm={7}>
+                      <Form.Item
+                        label="Giờ kết thúc"
+                        name="otEndTime"
+                        rules={[{ required: true, message: 'Chọn giờ kết thúc' }]}
+                      >
+                        <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {selectedType === RequestType.AttendanceExplanation && (
+                  <Row gutter={16}>
+                    <Col xs={24} sm={12}>
+                      <Form.Item label="Ngày chấm công" required>
+                        <DatePicker
+                          style={{ width: '100%' }}
+                          value={singleDate}
+                          onChange={(d) => setSingleDate(d)}
+                          format="DD/MM/YYYY"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12}>
+                      <Form.Item
+                        label="Giờ đề xuất ghi nhận (HH:mm)"
+                        name="requestedTime"
+                        tooltip="Giờ thực tế bạn có mặt hoặc rời đi muốn hệ thống cập nhật"
+                        rules={[{ required: true, message: 'Vui lòng chọn giờ muốn ghi nhận' }]}
+                      >
+                        <TimePicker format="HH:mm" minuteStep={5} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {selectedType === RequestType.ShiftChange && (
+                  <Row gutter={16}>
+                    <Col xs={24} sm={8}>
+                      <Form.Item label="Ngày đổi ca" required>
+                        <DatePicker
+                          style={{ width: '100%' }}
+                          value={singleDate}
+                          onChange={(d) => setSingleDate(d)}
+                          format="DD/MM/YYYY"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={8}>
+                      <Form.Item
+                        label="Ca làm việc chuyển đến"
+                        name="newShiftTemplateId"
+                        rules={[{ required: true, message: 'Chọn ca chuyển đến' }]}
+                        initialValue={shiftTemplates[0]?.id}
+                      >
+                        <Select
+                          placeholder="Chọn ca làm việc..."
+                          options={shiftTemplates.map((tpl) => ({
+                            value: tpl.id,
+                            label: `${tpl.name} (${tpl.startTime} - ${tpl.endTime})`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={8}>
+                      <Form.Item
+                        label="Hoán đổi với đồng nghiệp"
+                        name="swapWithEmployeeId"
+                        tooltip="Tùy chọn: Chọn đồng nghiệp cùng bộ phận nếu muốn hoán đổi ca trực"
+                      >
+                        <Select
+                          allowClear
+                          placeholder="Chọn đồng nghiệp (Tùy chọn)..."
+                          options={colleagues
+                            .filter((c) => c.id !== user?.id)
+                            .map((c) => ({
+                              value: c.id,
+                              label: `${c.fullName} (${c.employeeCode || 'NV'})`,
+                            }))}
                         />
                       </Form.Item>
                     </Col>
@@ -793,11 +965,12 @@ export const RequestsPage: React.FC = () => {
                     Đủ điều kiện gửi phê duyệt
                   </div>
                   <div style={{ fontSize: 13, color: '#14532d', lineHeight: 1.6 }}>
-                    Hệ thống AI đã tự động đối soát với Quy chế Nhân sự công ty.
+                    Hệ thống AI sẽ tự động đối soát với Quy chế Lao động & Nội quy Nhân sự.
                   </div>
                 </div>
               )}
 
+              {/* Chi tiết quỹ phép đối với đơn LEAVE */}
               {selectedType === RequestType.Leave && (
                 <div
                   style={{
@@ -849,21 +1022,80 @@ export const RequestsPage: React.FC = () => {
                 </div>
               )}
 
+              {/* Thông tin đối soát theo từng loại đơn */}
               <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {selectedType === RequestType.Leave && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Báo trước: <strong>≥ 3 ngày làm việc</strong> (Nghỉ 1-2 ngày)
+                      </Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>Không trùng lịch công tác hoặc sự kiện công ty</Text>
+                    </div>
+                  </>
+                )}
+
+                {selectedType === RequestType.Overtime && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Giới hạn OT: <strong>Tối đa 40 giờ/tháng</strong> (Bộ luật Lao động 2019)
+                      </Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Thời lượng: <strong>Không quá 4 giờ/ngày làm việc</strong>
+                      </Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>Thời điểm đăng ký trước khi bắt đầu làm OT</Text>
+                    </div>
+                  </>
+                )}
+
+                {selectedType === RequestType.AttendanceExplanation && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Hạn gửi giải trình: <strong>Trong vòng 3 ngày làm việc</strong>
+                      </Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>Giờ đề xuất ghi nhận phù hợp với khung giờ ca trực</Text>
+                    </div>
+                  </>
+                )}
+
+                {selectedType === RequestType.ShiftChange && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Khoảng nghỉ giữa 2 ca: <strong>Tối thiểu 12 giờ</strong>
+                      </Text>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Badge status="success" />
+                      <Text style={{ fontSize: 13 }}>
+                        Định biên ca cũ: <strong>Còn tối thiểu 2 nhân sự trực</strong>
+                      </Text>
+                    </div>
+                  </>
+                )}
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Badge status="success" />
+                  <Badge status="processing" />
                   <Text style={{ fontSize: 13 }}>
-                    Thời gian gửi trước: <strong>5 ngày</strong> (yêu cầu ≥ 3 ngày)
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Badge status="success" />
-                  <Text style={{ fontSize: 13 }}>Không trùng lịch trực bận của phòng ban</Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Badge status="success" />
-                  <Text style={{ fontSize: 13 }}>
-                    Độ rủi ro AI: <strong>0.05 (Rất an toàn)</strong>
+                    Cơ chế phê duyệt: <strong>AI tự động duyệt hoặc chuyển cấp duyệt</strong>
                   </Text>
                 </div>
               </Space>

@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
 import { RequestStatus, RiskLevel } from '@prisma/client';
 
 export class DecisionDto {
@@ -25,6 +25,14 @@ export class EscalateDto {
   @IsOptional()
   @IsEnum(RiskLevel)
   riskLevel?: RiskLevel;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
+
+  @IsOptional()
+  @IsObject()
+  trace?: Record<string, any>;
 }
 
 export class ReturnDto {
