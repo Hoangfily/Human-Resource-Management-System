@@ -267,19 +267,25 @@ export const DashboardPage: React.FC = () => {
             </div>
             <div style={{ margin: '10px 0 6px' }}>
               <span style={{ fontSize: 20, fontWeight: 700, color: '#0f766e' }}>
-                {attendance?.status === 'CHECKED_IN'
-                  ? 'Đã vào ca'
-                  : attendance?.status === 'CHECKED_OUT'
+                {attendance?.isCheckedIn || attendance?.status === 'CHECKED_IN'
+                  ? 'Đang trong ca'
+                  : attendance?.isCheckedOut || attendance?.status === 'CHECKED_OUT'
                   ? 'Đã hoàn thành ca'
                   : 'Chưa điểm danh'}
               </span>
             </div>
             <Tag
-              color={attendance?.status === 'CHECKED_IN' ? 'success' : attendance?.status === 'CHECKED_OUT' ? 'default' : 'warning'}
+              color={
+                attendance?.isCheckedIn || attendance?.status === 'CHECKED_IN'
+                  ? 'processing'
+                  : attendance?.isCheckedOut || attendance?.status === 'CHECKED_OUT'
+                  ? 'success'
+                  : 'warning'
+              }
               style={{ margin: '4px 0 0', borderRadius: 4 }}
             >
-              {attendance?.checkInTime
-                ? `Vào lúc: ${attendance.checkInTime}`
+              {attendance?.checkInTime || attendance?.clockInTime
+                ? `Vào lúc: ${attendance.checkInTime || new Date(attendance.clockInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`
                 : 'Ca Sáng: 08:30 - 17:30'}
             </Tag>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>

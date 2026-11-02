@@ -9,14 +9,12 @@ export class AttendanceService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Helper: Lấy mốc thời gian bắt đầu (00:00:00) và kết thúc (23:59:59) của một ngày
+   * Helper: Lấy mốc thời gian bắt đầu (00:00:00) và kết thúc (23:59:59) theo múi giờ Việt Nam
    */
   private getDayRange(date = new Date()) {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    const vnDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(date);
+    const startOfDay = new Date(`${vnDateStr}T00:00:00+07:00`);
+    const endOfDay = new Date(`${vnDateStr}T23:59:59.999+07:00`);
 
     return { startOfDay, endOfDay };
   }
@@ -28,33 +26,23 @@ export class AttendanceService {
     const now = new Date();
     const { startOfDay, endOfDay } = this.getDayRange(now);
 
-    // Kiểm tra xem nhân viên này hôm nay đã check-in chưa
-    const existingIn = await this.prisma.attendanceEvent.findFirst({
+    // Lấy sự kiện quẹt thẻ gần nhất hôm nay
+    const latestEvent = await this.prisma.attendanceEvent.findFirst({
       where: {
         employeeId: caller.id,
-        type: AttendanceEventType.CLOCK_IN,
         timestamp: { gte: startOfDay, lte: endOfDay },
       },
       orderBy: { timestamp: 'desc' },
     });
 
-    const existingOut = await this.prisma.attendanceEvent.findFirst({
-      where: {
-        employeeId: caller.id,
-        type: AttendanceEventType.CLOCK_OUT,
-        timestamp: { gte: startOfDay, lte: endOfDay },
-      },
-      orderBy: { timestamp: 'desc' },
-    });
-
-    // Nếu đã check-in và chưa check-out thì nhắc nhở
-    if (existingIn && (!existingOut || existingOut.timestamp < existingIn.timestamp)) {
-      const timeStr = existingIn.timestamp.toLocaleTimeString('vi-VN', {
+    // Nếu lần quẹt gần nhất là CLOCK_IN -> đang trong ca, không cho check-in tiếp
+    if (latestEvent && latestEvent.type === AttendanceEventType.CLOCK_IN) {
+      const timeStr = latestEvent.timestamp.toLocaleTimeString('vi-VN', {
         hour: '2-digit',
         minute: '2-digit',
       });
       throw new BadRequestException(
-        `Bạn đã thực hiện Check-in hôm nay lúc ${timeStr}. Vui lòng Check-out khi hết ca làm.`,
+        `Bạn đang trong ca làm việc (đã Check-in lúc ${timeStr}). Vui lòng Check-out khi kết thúc ca.`,
       );
     }
 
@@ -109,21 +97,32 @@ export class AttendanceService {
     const now = new Date();
     const { startOfDay, endOfDay } = this.getDayRange(now);
 
-    // Tìm sự kiện check-in gần nhất trong ngày
-    const lastIn = await this.prisma.attendanceEvent.findFirst({
+    // Lấy sự kiện quẹt thẻ gần nhất hôm nay
+    const latestEvent = await this.prisma.attendanceEvent.findFirst({
       where: {
         employeeId: caller.id,
-        type: AttendanceEventType.CLOCK_IN,
         timestamp: { gte: startOfDay, lte: endOfDay },
       },
       orderBy: { timestamp: 'desc' },
     });
 
-    if (!lastIn) {
+    if (!latestEvent || latestEvent.type !== AttendanceEventType.CLOCK_IN) {
+      if (latestEvent && latestEvent.type === AttendanceEventType.CLOCK_OUT) {
+        const outTime = latestEvent.timestamp.toLocaleTimeString('vi-VN', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        throw new BadRequestException(
+          `Bạn đã thực hiện Check-out hôm nay lúc ${outTime} rồi. Vui lòng Check-in ca mới nếu muốn tiếp tục làm việc.`,
+        );
+      }
       throw new BadRequestException(
         'Bạn chưa thực hiện Check-in ngày hôm nay. Vui lòng Check-in trước khi Check-out.',
       );
     }
+
+    // Tìm lần check-in gần nhất để tính thời gian làm
+    const lastIn = latestEvent;
 
     // Tạo sự kiện CLOCK_OUT
     const event = await this.prisma.attendanceEvent.create({
@@ -169,12 +168,10 @@ export class AttendanceService {
 
     const firstIn = events.find((e) => e.type === AttendanceEventType.CLOCK_IN);
     const lastOut = [...events].reverse().find((e) => e.type === AttendanceEventType.CLOCK_OUT);
+    const latestEvent = events[events.length - 1];
 
-    const isCheckedIn = Boolean(firstIn);
-    // Đã checkout nếu có event OUT sau event IN cuối cùng
-    const isCheckedOut = Boolean(
-      lastOut && firstIn && lastOut.timestamp.getTime() > firstIn.timestamp.getTime(),
-    );
+    const isCurrentlyWorking = Boolean(latestEvent && latestEvent.type === AttendanceEventType.CLOCK_IN);
+    const hasCompletedShift = Boolean(latestEvent && latestEvent.type === AttendanceEventType.CLOCK_OUT);
 
     let workingHours = 0;
     if (firstIn) {
@@ -182,14 +179,35 @@ export class AttendanceService {
       workingHours = parseFloat(((endTime - firstIn.timestamp.getTime()) / (1000 * 60 * 60)).toFixed(2));
     }
 
+    const firstInFormatted = firstIn?.timestamp
+      ? firstIn.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      : null;
+    const lastOutFormatted = lastOut?.timestamp
+      ? lastOut.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      : null;
+
     return {
       date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(now),
-      isCheckedIn,
-      isCheckedOut,
+      // Phục vụ giao diện: isCheckedIn chỉ là TRUE khi người đó thực sự đang trong ca (chưa check-out)
+      isCheckedIn: isCurrentlyWorking,
+      isCheckedOut: hasCompletedShift,
+      status: isCurrentlyWorking ? 'CHECKED_IN' : hasCompletedShift ? 'CHECKED_OUT' : 'NOT_CHECKED_IN',
       clockInTime: firstIn?.timestamp || null,
       clockOutTime: lastOut?.timestamp || null,
+      firstClockIn: firstIn?.timestamp || null,
+      lastClockOut: lastOut?.timestamp || null,
+      checkInTime: firstInFormatted,
+      checkOutTime: lastOutFormatted,
       workingHours,
+      workedHours: workingHours,
       eventsCount: events.length,
+      todayEventsCount: events.length,
+      recentLogs: events.map((e) => ({
+        id: e.id,
+        type: e.type,
+        timestamp: e.timestamp.toISOString(),
+        location: e.location,
+      })),
     };
   }
 
@@ -240,13 +258,19 @@ export class AttendanceService {
         status = 'IN_PROGRESS';
       }
 
+      const inFormatted = firstIn?.timestamp ? firstIn.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—';
+      const outFormatted = lastOut?.timestamp ? lastOut.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—';
+
       return {
         date: dateStr,
-        clockIn: firstIn?.timestamp ? firstIn.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—',
-        clockOut: lastOut?.timestamp ? lastOut.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—',
+        in: inFormatted,
+        out: outFormatted,
+        clockIn: inFormatted,
+        clockOut: outFormatted,
+        duration: `${totalHours} giờ`,
         totalHours,
         status,
-        location: firstIn?.location || 'Văn phòng',
+        location: firstIn?.location || 'Văn phòng chính',
       };
     });
 
@@ -257,6 +281,7 @@ export class AttendanceService {
       history,
     };
   }
+
   /**
    * 5. Lấy danh sách sự kiện quẹt thẻ thô (raw events) cho AI & HR (docs/06 item 5)
    */

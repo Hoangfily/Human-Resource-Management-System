@@ -36,11 +36,19 @@ const { Title, Text, Paragraph } = Typography;
 
 interface AttendanceStatus {
   isCheckedIn: boolean;
-  firstClockIn: string | null;
-  lastClockOut: string | null;
-  workedHours: number;
-  todayEventsCount: number;
-  recentLogs: Array<{
+  isCheckedOut?: boolean;
+  status?: string;
+  firstClockIn?: string | null;
+  lastClockOut?: string | null;
+  clockInTime?: string | null;
+  clockOutTime?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  workedHours?: number;
+  workingHours?: number;
+  todayEventsCount?: number;
+  eventsCount?: number;
+  recentLogs?: Array<{
     id: string;
     type: string;
     timestamp: string;
@@ -77,11 +85,16 @@ export const AttendancePage: React.FC = () => {
     setLoading(true);
     try {
       const [statusRes, historyRes] = await Promise.all([
-        apiClient.get<AttendanceStatus>('/attendance/status'),
-        apiClient.get<any[]>('/attendance/history'),
+        apiClient.get<any>('/attendance/status'),
+        apiClient.get<any>('/attendance/history'),
       ]);
-      setStatusData(statusRes as unknown as AttendanceStatus);
-      setHistoryLogs((historyRes as unknown as any[]) || []);
+      setStatusData((statusRes as any) as AttendanceStatus);
+      const logs = Array.isArray(historyRes)
+        ? historyRes
+        : Array.isArray((historyRes as any)?.history)
+        ? (historyRes as any).history
+        : [];
+      setHistoryLogs(logs);
     } catch {
       // Giữ giao diện nếu lỗi mạng
     } finally {
@@ -155,67 +168,92 @@ export const AttendancePage: React.FC = () => {
     },
     {
       title: 'Giờ vào',
-      dataIndex: 'in',
       key: 'in',
-      render: (t?: string) =>
-        t ? (
+      render: (_: any, r: any) => {
+        const val = r.in || r.clockIn;
+        return val && val !== '—' ? (
           <Tag color="success" style={{ fontWeight: 600, borderRadius: 6 }}>
-            {t}
+            {val}
           </Tag>
         ) : (
           <Text type="secondary">—</Text>
-        ),
+        );
+      },
     },
     {
       title: 'Giờ ra',
-      dataIndex: 'out',
       key: 'out',
-      render: (t?: string) =>
-        t ? (
+      render: (_: any, r: any) => {
+        const val = r.out || r.clockOut;
+        return val && val !== '—' ? (
           <Tag color="processing" style={{ fontWeight: 600, borderRadius: 6 }}>
-            {t}
+            {val}
           </Tag>
         ) : (
           <Text type="secondary">—</Text>
-        ),
+        );
+      },
+    },
+    {
+      title: 'Thời lượng',
+      key: 'duration',
+      render: (_: any, r: any) => {
+        const val = r.duration || (r.totalHours !== undefined ? `${r.totalHours} giờ` : null);
+        return val ? <Text strong style={{ color: '#0f766e' }}>{val}</Text> : <Text type="secondary">—</Text>;
+      },
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
       render: (s: string) => {
-        if (s === 'IN_PROGRESS') return <Tag color="processing">Đang làm việc</Tag>;
-        if (s === 'ON_TIME') return <Tag color="success">Đúng ca</Tag>;
-        return <Tag color="warning">Đã giải trình</Tag>;
+        if (s === 'IN_PROGRESS') return <Tag color="processing">Đang trong ca</Tag>;
+        if (s === 'ON_TIME') return <Tag color="success">Đúng giờ</Tag>;
+        if (s === 'LATE') return <Tag color="warning">Đi muộn</Tag>;
+        if (s === 'EARLY_LEAVE') return <Tag color="orange">Về sớm</Tag>;
+        return <Tag color="default">Ghi nhận</Tag>;
       },
     },
   ];
 
+  const isCheckedIn = statusData?.isCheckedIn ?? false;
+  const isCheckedOut = statusData?.isCheckedOut ?? false;
+  const rawClockIn = statusData?.clockInTime || statusData?.firstClockIn;
+  const firstInTime = statusData?.checkInTime || (rawClockIn
+    ? new Date(rawClockIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : null);
+  const rawClockOut = statusData?.clockOutTime || statusData?.lastClockOut;
+  const lastOutTime = statusData?.checkOutTime || (rawClockOut
+    ? new Date(rawClockOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : null);
+
   const dateCellRender = (value: Dayjs) => {
-    const day = value.date();
     const isToday = value.isSame(dayjs(), 'day');
+    const dateStr = value.format('YYYY-MM-DD');
 
     if (isToday) {
       return (
         <Badge
-          status={statusData?.isCheckedIn ? 'success' : 'warning'}
-          text={statusData?.isCheckedIn ? 'Đang làm việc' : 'Chưa check-in'}
+          status={isCheckedIn ? 'processing' : isCheckedOut ? 'success' : 'default'}
+          text={isCheckedIn ? 'Đang làm việc' : isCheckedOut ? 'Đã hoàn thành' : 'Chưa check-in'}
         />
       );
     }
-    if (day === 2) {
-      return <Badge status="warning" text="Quên quẹt thẻ (Đã duyệt)" />;
+
+    const logForDay = historyLogs.find((l) => l.date === dateStr);
+    if (logForDay) {
+      const inVal = logForDay.in || logForDay.clockIn;
+      const outVal = logForDay.out || logForDay.clockOut;
+      return (
+        <Badge
+          status={logForDay.status === 'LATE' ? 'warning' : 'success'}
+          text={`${inVal !== '—' ? inVal : '??'} - ${outVal !== '—' ? outVal : '...'}`}
+        />
+      );
     }
-    if (value.day() !== 0 && value.day() !== 6 && day <= 24) {
-      return <Badge status="success" text="08:24 - 17:35" />;
-    }
+
     return null;
   };
-
-  const isCheckedIn = statusData?.isCheckedIn ?? false;
-  const firstInTime = statusData?.firstClockIn
-    ? new Date(statusData.firstClockIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-    : null;
 
   return (
     <div>
@@ -285,11 +323,13 @@ export const AttendancePage: React.FC = () => {
                   : '0 6px 18px rgba(16, 185, 129, 0.4)',
               }}
             >
-              {isCheckedIn ? 'Check-out Giờ về' : 'Check-in Bắt đầu làm'}
+              {isCheckedIn ? 'Check-out Giờ về' : isCheckedOut ? 'Check-in Ca tiếp theo' : 'Check-in Bắt đầu làm'}
             </Button>
             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 10 }}>
-              {isCheckedIn ? (
-                <span style={{ color: '#34d399' }}>● Đã vào ca lúc {firstInTime || '08:24 sáng'}</span>
+              {isCheckedIn && firstInTime ? (
+                <span style={{ color: '#34d399' }}>● Đang làm việc (Vào lúc {firstInTime})</span>
+              ) : isCheckedOut && lastOutTime ? (
+                <span style={{ color: '#38bdf8' }}>● Đã hoàn thành ca (Ra lúc {lastOutTime})</span>
               ) : (
                 'Chưa ghi nhận lượt vào ca hôm nay'
               )}
@@ -302,21 +342,21 @@ export const AttendancePage: React.FC = () => {
                 <div style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '10px 14px', borderRadius: 10 }}>
                   <div style={{ color: '#94a3b8', fontSize: 11 }}>Số giờ làm hôm nay</div>
                   <div style={{ color: '#f8fafc', fontSize: 20, fontWeight: 700 }}>
-                    {statusData?.workedHours ?? 0} giờ
+                    {statusData?.workingHours ?? statusData?.workedHours ?? 0} giờ
                   </div>
                 </div>
               </Col>
               <Col span={12}>
                 <div style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '10px 14px', borderRadius: 10 }}>
-                  <div style={{ color: '#94a3b8', fontSize: 11 }}>Công chuẩn tháng</div>
-                  <div style={{ color: '#34d399', fontSize: 20, fontWeight: 700 }}>22 / 22 ngày</div>
+                  <div style={{ color: '#94a3b8', fontSize: 11 }}>Công ghi nhận tháng</div>
+                  <div style={{ color: '#34d399', fontSize: 20, fontWeight: 700 }}>{historyLogs.length} ngày công</div>
                 </div>
               </Col>
               <Col span={12}>
                 <div style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '10px 14px', borderRadius: 10 }}>
                   <div style={{ color: '#94a3b8', fontSize: 11 }}>Lượt quẹt hôm nay</div>
                   <div style={{ color: '#f8fafc', fontSize: 20, fontWeight: 700 }}>
-                    {statusData?.todayEventsCount ?? 0} lần
+                    {statusData?.eventsCount ?? statusData?.todayEventsCount ?? 0} lần
                   </div>
                 </div>
               </Col>
@@ -373,7 +413,7 @@ export const AttendancePage: React.FC = () => {
                 columns={logColumns}
                 pagination={false}
                 size="middle"
-                rowKey="date"
+                rowKey={(record, idx) => record.date || String(idx)}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8' }}>
