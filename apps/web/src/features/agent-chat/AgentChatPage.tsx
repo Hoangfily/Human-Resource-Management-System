@@ -52,13 +52,15 @@ export interface ChatActionCard {
     daysCount?: number;
     reason: string;
   };
+  // Body `payload` của POST /requests do AI soạn sẵn đúng định dạng API: gửi nguyên văn khi xác nhận
+  payload?: Record<string, unknown>;
   policyChecks: {
     rule: string;
     passed: boolean;
     description: string;
   }[];
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  confidence: number;
+  confidence?: number;
   status: 'draft' | 'submitted';
   submittedRequestId?: string;
 }
@@ -70,7 +72,17 @@ export interface ChatMessage {
   timestamp: string;
   citationKeys?: string[];
   actionCard?: ChatActionCard;
+  fallback?: boolean; // API trả lời dự phòng vì AI không phản hồi
 }
+
+const timeLabel = (iso?: string) =>
+  (iso ? new Date(iso) : new Date()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+// Lỗi validation của API có thể là chuỗi hoặc mảng chuỗi
+const apiErrorText = (err: any, fallback: string) => {
+  const msg = err?.response?.data?.message;
+  return Array.isArray(msg) ? msg.join(', ') : msg || fallback;
+};
 
 export const AgentChatPage: React.FC = () => {
   const { user } = useAuth();
@@ -80,6 +92,8 @@ export const AgentChatPage: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [submittingCardId, setSubmittingCardId] = useState<string | null>(null);
+  // Gửi lại mỗi lượt để AI nhớ các câu trước (vd: "đổi sang thứ 5")
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Danh sách tin nhắn khởi tạo
@@ -140,21 +154,25 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
 
     try {
       // Chờ lâu hơn API (45 giây): AI có thể thử 2 model, và khi AI lỗi API vẫn trả phản hồi dự phòng
-      const res: any = await apiClient.post('/agent/chat', { message: text }, { timeout: 50000 });
+      const res: any = await apiClient.post('/agent/chat', { message: text, conversationId }, { timeout: 50000 });
+      // Chỉ nhận id do AI cấp: phản hồi dự phòng không có hội thoại để nhớ
+      if (res.conversationId && !res.fallback) {
+        setConversationId(res.conversationId);
+      }
 
       const agentMessage: ChatMessage = {
         id: `agent-${Date.now()}`,
         sender: 'agent',
-        text: res.message || 'Tôi đã xử lý yêu cầu của bạn.',
-        timestamp: res.timestamp || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        text: res.reply || res.message || 'Tôi đã xử lý yêu cầu của bạn.',
+        timestamp: timeLabel(res.timestamp),
         citationKeys: res.citationKeys,
-        actionCard: res.actionCard,
+        actionCard: res.actionCard ? { ...res.actionCard, status: 'draft' } : undefined,
+        fallback: res.fallback === true,
       };
 
       setMessages((prev) => [...prev, agentMessage]);
     } catch (err: any) {
-      const errMsg = err.response?.data?.message || 'Không thể kết nối đến Trợ lý AI. Vui lòng thử lại sau.';
-      message.error(errMsg);
+      message.error(apiErrorText(err, 'Không thể kết nối đến Trợ lý AI. Vui lòng thử lại sau.'));
 
       const errorMessage: ChatMessage = {
         id: `err-${Date.now()}`,
@@ -170,36 +188,21 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
 
   // Xác nhận nộp đơn từ Action Card vào CSDL PostgreSQL thật
   const handleConfirmSubmit = async (card: ChatActionCard) => {
+    if (!card.payload) {
+      message.error('Thẻ này chưa có đủ thông tin đơn, bạn vui lòng tạo đơn ở trang Đơn từ.');
+      return;
+    }
     setSubmittingCardId(card.id);
     try {
-      // 1. Tạo đơn thật qua API /requests
-      const payload: any = {
-        reason: card.data.reason,
-        dates: card.data.dates,
-      };
-
-      if (card.requestType === RequestType.Leave) {
-        payload.leaveType = card.data.leaveType || 'ANNUAL';
-        payload.daysCount = card.data.daysCount || 2;
-        payload.startDate = '2026-10-15';
-        payload.endDate = '2026-10-16';
-      } else if (card.requestType === RequestType.Overtime) {
-        payload.durationHours = 3;
-        payload.date = '2026-10-30';
-        payload.startTime = '18:00';
-        payload.endTime = '21:00';
-      } else if (card.requestType === RequestType.AttendanceExplanation) {
-        payload.date = '2026-10-24';
-        payload.issue = 'Quên quẹt thẻ';
-        payload.explanation = card.data.reason;
-      }
-
+      // 1. Tạo đơn thật bằng tài khoản của chính nhân viên, đúng nội dung thẻ AI đã soạn.
+      // idempotencyKey theo id thẻ: bấm 2 lần không tạo 2 đơn.
       const res: any = await apiClient.post('/requests', {
         type: card.requestType,
-        payload,
+        payload: card.payload,
+        idempotencyKey: `chat-card:${card.id}`,
       });
 
-      const newRequestId = res?.id || `REQ-${Math.floor(Math.random() * 8999 + 1000)}`;
+      const newRequestId: string = res.id;
 
       // 2. Cập nhật trạng thái Action Card trong hội thoại
       setMessages((prev) =>
@@ -225,7 +228,7 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
         const followUpMsg: ChatMessage = {
           id: `agent-confirm-${Date.now()}`,
           sender: 'agent',
-          text: `🎉 **Xác nhận thành công!** Đơn **${card.title}** của bạn đã được ghi nhận trên hệ thống với mã **#${newRequestId.slice(0, 8)}** và chuyển tới Quản lý để xét duyệt.
+          text: `🎉 **Đã gửi duyệt!** ${card.title} của bạn đã được ghi nhận với mã **#${newRequestId.slice(0, 8)}**. Hệ thống sẽ xét duyệt trong ít phút, hoặc chuyển cho Quản lý nếu cần.
 
 Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục **Quản lý Đơn từ**.`,
           timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
@@ -233,8 +236,8 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
         setMessages((prev) => [...prev, followUpMsg]);
       }, 500);
     } catch (err: any) {
-      const errMsg = err.response?.data?.message || 'Không thể nộp đơn. Vui lòng thử lại.';
-      message.error(errMsg);
+      // Vd: API chặn đơn trùng ngày nghỉ hoặc ngày đã qua (luật cứng)
+      message.error(apiErrorText(err, 'Không thể nộp đơn. Vui lòng thử lại.'));
     } finally {
       setSubmittingCardId(null);
     }
@@ -312,6 +315,14 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                         }}
                       >
                         {m.text}
+
+                        {m.fallback && (
+                          <div style={{ marginTop: 8 }}>
+                            <Tag color="warning" icon={<ExclamationCircleOutlined />} style={{ borderRadius: 6, fontSize: 11 }}>
+                              Phản hồi dự phòng: Trợ lý AI tạm thời không trả lời
+                            </Tag>
+                          </div>
+                        )}
 
                         {/* Thẻ trích dẫn quy chế (Đã Việt hóa sạch 100%) */}
                         {m.citationKeys && m.citationKeys.length > 0 && !isUser && (

@@ -1,0 +1,11 @@
+{
+  "id": "chat-22-draft-shift-change",
+  "description": "Đổi ca: không soạn trong chat",
+  "today": "2026-10-19",
+  "turns": [
+    "Tôi muốn đổi ca sáng thứ 2 tuần sau sang ca chiều"
+  ],
+  "expected": {
+    "card": null
+  }
+}

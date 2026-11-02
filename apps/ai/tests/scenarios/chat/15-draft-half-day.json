@@ -1,0 +1,21 @@
+{
+  "id": "chat-15-draft-half-day",
+  "description": "Nghỉ buổi sáng",
+  "today": "2026-10-19",
+  "turns": [
+    "Cho tôi nghỉ phép buổi sáng ngày 6/11 để làm giấy tờ nhà"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "LEAVE",
+      "payload": {
+        "startDate": "2026-11-06",
+        "endDate": "2026-11-06",
+        "halfDay": "AM"
+      }
+    }
+  }
+}

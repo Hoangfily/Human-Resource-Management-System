@@ -1,0 +1,18 @@
+{
+  "id": "chat-02-balance-follow-up",
+  "description": "Câu nối tiếp hỏi nghỉ ốm",
+  "today": "2026-10-19",
+  "turns": [
+    "Tôi còn bao nhiêu ngày phép năm?",
+    "Thế còn nghỉ ốm?"
+  ],
+  "expected": {
+    "intent": [
+      "LEAVE_BALANCE"
+    ],
+    "card": null,
+    "reply_contains": [
+      "29"
+    ]
+  }
+}

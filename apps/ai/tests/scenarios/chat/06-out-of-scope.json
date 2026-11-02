@@ -1,0 +1,15 @@
+{
+  "id": "chat-06-out-of-scope",
+  "description": "Câu hỏi ngoài phạm vi",
+  "today": "2026-10-19",
+  "turns": [
+    "Thời tiết Hà Nội hôm nay thế nào?"
+  ],
+  "expected": {
+    "intent": [
+      "OUT_OF_SCOPE",
+      "SMALL_TALK"
+    ],
+    "card": null
+  }
+}

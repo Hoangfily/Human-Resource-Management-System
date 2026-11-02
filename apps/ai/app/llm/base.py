@@ -1,13 +1,15 @@
 import asyncio
 import logging
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..schemas.decision import LLMAssessment
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LLMError(Exception):
@@ -19,6 +21,11 @@ class LLMClient(Protocol):
     last_model: str  # Model that produced the last answer (for the trace)
 
     async def assess(self, system: str, user: str) -> LLMAssessment: ...
+
+    async def complete(self, system: str, user: str, schema: type[T], *, effort: str | None = None) -> T:
+        """Structured output of any schema (e.g. a chat turn); same fallback and error rules as assess.
+        `effort`: reasoning effort for models that have one (None = the cheapest each model accepts)."""
+        ...
 
 
 class FallbackLLM:
@@ -34,10 +41,13 @@ class FallbackLLM:
         self.timeout_s = timeout_s
 
     async def assess(self, system: str, user: str) -> LLMAssessment:
+        return await self.complete(system, user, LLMAssessment)
+
+    async def complete(self, system: str, user: str, schema: type[T], *, effort: str | None = None) -> T:
         errors: list[str] = []
         for model in self.models:
             try:
-                result = await self._assess_once(model, system, user)
+                result = await self._complete_once(model, system, user, schema, effort)
             except LLMError as exc:
                 errors.append(f"{model}: {exc}")
                 continue
@@ -48,9 +58,9 @@ class FallbackLLM:
         self.last_model = "/".join(self.models)  # Every model was tried; not the last one that worked
         raise LLMError("; ".join(errors))
 
-    async def _assess_once(self, model: str, system: str, user: str) -> LLMAssessment:
+    async def _complete_once(self, model: str, system: str, user: str, schema: type[T], effort: str | None) -> T:
         try:
-            parsed, text = await asyncio.wait_for(self._call(model, system, user), timeout=self.timeout_s)
+            parsed, text = await asyncio.wait_for(self._call(model, system, user, schema, effort), timeout=self.timeout_s)
         except TimeoutError as exc:
             raise LLMError(f"timed out after {self.timeout_s}s") from exc
         except ValidationError as exc:  # The SDK parsed the reply itself; its message quotes the model text
@@ -58,13 +68,15 @@ class FallbackLLM:
         except Exception as exc:  # SDK/network errors of any kind
             raise LLMError(f"call failed: {type(exc).__name__}: {str(exc)[:200]}") from exc
 
-        if isinstance(parsed, LLMAssessment):
+        if isinstance(parsed, schema):
             return parsed
         try:  # e.g. a refusal or plain text instead of the schema
-            return LLMAssessment.model_validate_json(text or "")
+            return schema.model_validate_json(text or "")
         except ValidationError as exc:
             raise LLMError(f"invalid output: {(text or '')[:200]}") from exc
 
-    async def _call(self, model: str, system: str, user: str) -> tuple[Any, str | None]:
-        """One SDK call: (parsed output or None, raw text)."""
+    async def _call(
+        self, model: str, system: str, user: str, schema: type[BaseModel], effort: str | None = None
+    ) -> tuple[Any, str | None]:
+        """One SDK call asking for `schema`: (parsed output or None, raw text)."""
         raise NotImplementedError

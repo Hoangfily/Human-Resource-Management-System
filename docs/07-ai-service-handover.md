@@ -169,7 +169,29 @@ Mọi endpoint dưới đây có tiền tố `/api/v1` và xác thực bằng `A
 
 ---
 
-### 3.5. Các endpoint đọc khác AI dùng
+### 3.5. Chat (API ➔ AI)
+* **Endpoint:** `POST {AI_API_BASE_URL}/api/chat`, header `X-Service-Token: <AI_INBOUND_TOKEN>`. Web gọi qua `POST /api/v1/agent/chat`.
+* **Body:** `{ "employeeId": "...", "message": "Cho tôi nghỉ phép ngày 15/12 để về quê", "conversationId": "..." }`
+* **Response (200):**
+```json
+{
+  "conversationId": "9b1c…",
+  "reply": "Mình đã soạn đơn nghỉ phép năm (15/12/2026). Bạn kiểm tra thẻ bên dưới rồi bấm “Xác nhận gửi duyệt” nhé.",
+  "citationKeys": [],
+  "actionCard": {
+    "id": "…", "type": "REQUEST_DRAFT", "title": "Đơn nghỉ phép năm", "requestType": "LEAVE",
+    "data": { "typeName": "Nghỉ phép năm", "leaveType": "ANNUAL", "dates": "15/12/2026", "durationText": "1 ngày làm việc", "daysCount": 1, "reason": "về quê" },
+    "payload": { "leaveType": "ANNUAL", "startDate": "2026-12-15", "endDate": "2026-12-15", "reason": "về quê" },
+    "policyChecks": [{ "rule": "HARD_RULES", "passed": true, "description": "Đạt các luật cứng của công ty cho loại đơn này" }],
+    "riskLevel": "LOW", "status": "draft"
+  }
+}
+```
+* Chi tiết (lịch sử hội thoại, lỗi 502/503, cách web gửi đơn từ thẻ): `docs/06-ai-integration.md` §7.
+
+---
+
+### 3.6. Các endpoint đọc khác AI dùng
 | Endpoint | Dùng để |
 |---|---|
 | `GET /api/v1/requests/:id`, `GET /api/v1/requests` | Đọc đơn cần chấm và lịch sử đơn của nhân viên |

@@ -7,10 +7,10 @@ from typing import Any
 import httpx
 import openai
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.config import DEFAULT_MODELS, get_settings
-from app.llm import LLMError, get_llm
+from app.llm import LLMError, UnavailableLLM, get_llm
 from app.llm.fake import FakeLLM
 from app.llm.gemini_client import GeminiClient
 from app.llm.openai_client import OpenAIClient, tuning_options
@@ -305,6 +305,47 @@ async def test_fake_llm_without_script_escalates() -> None:
     assert (result.decision, result.confidence) == ("ESCALATED", 0.0)
 
 
+# ---- complete(): any structured schema (chat turns) ----
+class Reply(BaseModel):
+    answer: str
+
+
+async def test_openai_complete_sends_the_given_schema() -> None:
+    stub = stub_openai(SimpleNamespace(output_parsed=Reply(answer="ok")))
+    assert await OpenAIClient("", "gpt-5.6-luna", client=stub).complete("s", "u", Reply) == Reply(answer="ok")
+    assert stub.calls[0]["text_format"] is Reply
+
+
+async def test_gemini_complete_sends_the_given_schema() -> None:
+    stub = stub_genai(SimpleNamespace(parsed=Reply(answer="ok"), text=None))
+    assert await GeminiClient("", "m", client=stub).complete("s", "u", Reply) == Reply(answer="ok")
+    assert stub.calls[0]["config"].response_schema is Reply
+
+
+async def test_complete_parses_text_into_the_given_schema_and_falls_back() -> None:
+    answers = iter([SimpleNamespace(output_parsed=None, output_text="not json"), SimpleNamespace(output_parsed=None, output_text='{"answer": "từ model 2"}')])
+
+    async def parse(**kwargs: Any) -> Any:
+        return next(answers)
+
+    llm = OpenAIClient("", "a", fallback_models=["b"], client=SimpleNamespace(responses=SimpleNamespace(parse=parse)))
+    assert await llm.complete("s", "u", Reply) == Reply(answer="từ model 2")
+    assert llm.last_model == "b"
+
+
+async def test_fake_llm_complete_checks_the_scripted_schema() -> None:
+    assert await FakeLLM([Reply(answer="x")]).complete("s", "u", Reply) == Reply(answer="x")
+    with pytest.raises(LLMError, match="asked for Reply"):
+        await FakeLLM([ASSESSMENT]).complete("s", "u", Reply)
+    with pytest.raises(LLMError, match="no scripted Reply"):
+        await FakeLLM().complete("s", "u", Reply)
+
+
+async def test_unavailable_llm_complete_raises() -> None:
+    with pytest.raises(LLMError, match="not configured"):
+        await UnavailableLLM("no key").complete("s", "u", Reply)
+
+
 # ---- factory ----
 def test_get_llm_by_provider() -> None:
     settings = get_settings()
@@ -452,3 +493,30 @@ def test_any_build_error_becomes_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(llm_module, "get_llm", no_sdk)
     llm = llm_module.get_llm_or_unavailable(get_settings())
     assert isinstance(llm, llm_module.UnavailableLLM) and "ImportError" in llm.cause
+
+
+async def test_openai_effort_is_sent_for_reasoning_models_only() -> None:
+    stub = stub_openai(SimpleNamespace(output_parsed=Reply(answer="ok")))
+    llm = OpenAIClient("", "gpt-5.6-luna", client=stub)
+    await llm.complete("s", "u", Reply, effort="low")
+    await llm.complete("s", "u", Reply)  # Decision mode keeps the cheapest setting
+    assert [c["reasoning"] for c in stub.calls] == [{"effort": "low"}, {"effort": "none"}]
+
+    stub = stub_openai(SimpleNamespace(output_parsed=Reply(answer="ok")))
+    await OpenAIClient("", "gpt-4.1-mini", client=stub).complete("s", "u", Reply, effort="low")
+    assert "reasoning" not in stub.calls[0] and "temperature" in stub.calls[0]
+
+
+async def test_rejected_effort_falls_back_and_is_remembered_per_effort() -> None:
+    calls: list[dict[str, Any]] = []
+    llm = OpenAIClient("", "gpt-5.9-new", client=parse_rejecting({"low"}, calls))
+    await llm.complete("s", "u", ASSESSMENT.__class__, effort="low")
+    await llm.complete("s", "u", ASSESSMENT.__class__, effort="low")
+    assert [c.get("reasoning") for c in calls] == [{"effort": "low"}, None, None]
+
+
+def test_effort_never_lowers_a_models_own_setting() -> None:
+    from app.llm.openai_client import _more
+
+    assert _more("low", "none") and _more("low", "minimal")
+    assert not _more("low", "high") and not _more("low", "low") and not _more("weird", "none")

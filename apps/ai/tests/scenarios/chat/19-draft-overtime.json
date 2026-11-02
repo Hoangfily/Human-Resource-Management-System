@@ -1,0 +1,21 @@
+{
+  "id": "chat-19-draft-overtime",
+  "description": "Làm thêm tối thứ 6 tuần này",
+  "today": "2026-10-19",
+  "turns": [
+    "Đăng ký làm thêm tối thứ 6 tuần này từ 6h tối đến 9h để triển khai hệ thống"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "OVERTIME",
+      "payload": {
+        "date": "2026-10-23",
+        "startTime": "18:00",
+        "endTime": "21:00"
+      }
+    }
+  }
+}

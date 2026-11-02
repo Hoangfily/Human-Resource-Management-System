@@ -3,13 +3,14 @@ from collections.abc import Sequence
 from typing import Any
 
 from openai import AsyncOpenAI, BadRequestError
+from pydantic import BaseModel
 
-from ..schemas.decision import LLMAssessment
 from .base import FallbackLLM, LLMError
 
 # Reasoning models reject `temperature`; they take a reasoning effort instead.
 REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 TUNING_PARAMS = {"temperature", "reasoning", "reasoning.effort"}
+EFFORT_ORDER = ["none", "minimal", "low", "medium", "high"]
 
 
 def tuning_options(model: str, temperature: float) -> dict[str, Any]:
@@ -39,6 +40,13 @@ def _safer(options: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _more(effort: str, than: str) -> bool:
+    """Whether `effort` asks for more reasoning than `than`: a requested effort never lowers a model's own
+    minimum (pro models only accept "high"), and unknown names change nothing."""
+    rank = {e: i for i, e in enumerate(EFFORT_ORDER)}
+    return rank.get(effort, -1) > rank.get(than, len(EFFORT_ORDER))
+
+
 def _refusal(response: Any) -> str | None:
     for item in getattr(response, "output", None) or []:
         for part in getattr(item, "content", None) or []:
@@ -64,14 +72,19 @@ class OpenAIClient(FallbackLLM):
             raise LLMError("OPENAI_API_KEY is not set")
         super().__init__(model, fallback_models, timeout_s=timeout_s)
         self.temperature = temperature
-        self._accepted: dict[str, dict[str, Any]] = {}  # Tuning options each model accepted
+        self._accepted: dict[tuple[str, str | None], dict[str, Any]] = {}  # Options each (model, effort) accepted
         # One internal retry per model; our own timeout caps each model's total time.
         self._client = client or AsyncOpenAI(api_key=api_key, max_retries=1)
 
-    async def _call(self, model: str, system: str, user: str) -> tuple[Any, str | None]:
+    async def _call(
+        self, model: str, system: str, user: str, schema: type[BaseModel], effort: str | None = None
+    ) -> tuple[Any, str | None]:
         # store=False: OpenAI must not keep HR prompts (employee data) after answering.
-        request = {"model": model, "instructions": system, "input": user, "text_format": LLMAssessment, "store": False}
-        options = self._accepted[model] if model in self._accepted else tuning_options(model, self.temperature)
+        request = {"model": model, "instructions": system, "input": user, "text_format": schema, "store": False}
+        key = (model, effort)
+        options = self._accepted[key] if key in self._accepted else tuning_options(model, self.temperature)
+        if effort and "reasoning" in options and key not in self._accepted and _more(effort, options["reasoning"]["effort"]):
+            options = {"reasoning": {"effort": effort}}  # Asked for more care than the cheapest setting
         while True:
             try:
                 response = await self._client.responses.parse(**request, **options)
@@ -80,5 +93,5 @@ class OpenAIClient(FallbackLLM):
                 if not options or getattr(exc, "param", None) not in TUNING_PARAMS:
                     raise
                 options = _safer(options)
-        self._accepted[model] = options  # Later requests skip the rejected call
+        self._accepted[key] = options  # Later requests skip the rejected call
         return response.output_parsed, _refusal(response) or getattr(response, "output_text", None)
