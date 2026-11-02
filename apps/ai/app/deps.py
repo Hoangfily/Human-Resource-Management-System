@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Header
 
 from .agents.chat_agent import ChatDeps
+from .agents.chat_memory import ConversationStore
 from .agents.supervisor import EvaluationDeps
 from .config import get_settings
 from .llm import LLMClient, get_llm_or_unavailable
@@ -15,6 +16,12 @@ from .tools.base import ApiClient
 @lru_cache
 def llm_client() -> LLMClient:
     return get_llm_or_unavailable(get_settings())
+
+
+@lru_cache
+def conversation_store() -> ConversationStore:
+    """One in-process chat history for the whole service."""
+    return ConversationStore()
 
 
 async def get_evaluation_deps(
@@ -34,4 +41,4 @@ async def get_chat_deps(
     settings = get_settings()
     async with ApiClient(settings.api_base_url, settings.ai_service_token, correlation_id=x_correlation_id) as api:
         today = datetime.now(ZoneInfo(settings.company_timezone)).date()
-        yield ChatDeps(api=api, llm=llm_client(), settings=settings, today=today)
+        yield ChatDeps(api=api, llm=llm_client(), settings=settings, today=today, memory=conversation_store())

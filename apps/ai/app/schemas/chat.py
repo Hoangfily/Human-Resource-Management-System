@@ -2,11 +2,22 @@
 
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .common import ApiModel, RequestType, RiskLevel
 
 MAX_MESSAGE_CHARS = 2000
+MAX_REPLY_CHARS = 1500
+
+ChatIntent = Literal["POLICY_QUESTION", "LEAVE_BALANCE", "REQUEST_STATUS", "CREATE_REQUEST", "SMALL_TALK", "OUT_OF_SCOPE"]
+
+
+class ChatLLMOutput(BaseModel):
+    """Structured output the LLM returns for one chat turn (snake_case: it is the LLM schema, not the wire)."""
+
+    intent: ChatIntent
+    reply: str = Field(description="Answer to the employee, in Vietnamese, short")
+    policy_refs: list[str] = Field(description="Keys of the provided policies the reply relies on; empty if none")
 
 
 class ChatRequest(ApiModel):
