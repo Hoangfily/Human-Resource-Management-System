@@ -15,10 +15,6 @@ import {
   Tag,
 } from 'antd';
 import {
-  UserOutlined,
-  LockOutlined,
-  MailOutlined,
-  PhoneOutlined,
   CheckCircleOutlined,
   SafetyCertificateFilled,
   ArrowRightOutlined,
@@ -45,10 +41,12 @@ export const LoginPage: React.FC = () => {
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/dashboard';
 
   React.useEffect(() => {
+    loginForm.resetFields();
+    registerForm.resetFields();
     if (isAuthenticated) {
       navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate, from]);
+  }, [isAuthenticated, navigate, from, loginForm, registerForm]);
 
   // Xử lý Đăng nhập
   const handleLogin = async (values: { email: string; password?: string }) => {
@@ -130,6 +128,100 @@ export const LoginPage: React.FC = () => {
         fontFamily: "'Plus Jakarta Sans', sans-serif",
       }}
     >
+      <style>{`
+        /* Ô nhập liệu theo mẫu Garena / Shopee của người dùng */
+        .custom-auth-input.ant-input,
+        .custom-auth-input.ant-input-affix-wrapper,
+        .custom-auth-input.ant-select .ant-select-selector {
+          border-radius: 4px !important;
+          font-size: 14px !important;
+          border: 1px solid #d9d9d9 !important;
+          height: 44px !important;
+          box-shadow: none !important;
+          background: #ffffff !important;
+          transition: border-color 0.2s, box-shadow 0.2s !important;
+        }
+
+        .custom-auth-input.ant-input-affix-wrapper {
+          padding: 8px 12px !important;
+        }
+
+        .custom-auth-input.ant-input {
+          padding: 8px 12px !important;
+        }
+
+        .custom-auth-input.ant-select .ant-select-selector {
+          padding: 6px 11px !important;
+        }
+
+        .custom-auth-input.ant-input-affix-wrapper > input.ant-input {
+          height: auto !important;
+          padding: 0 !important;
+          border: none !important;
+        }
+
+        .custom-auth-input input::placeholder,
+        .custom-auth-input.ant-input::placeholder,
+        .custom-auth-input .ant-select-selection-placeholder {
+          color: #9ca3af !important;
+          font-size: 14px !important;
+        }
+
+        .custom-auth-input:focus,
+        .custom-auth-input.ant-input-affix-wrapper-focused,
+        .custom-auth-input.ant-select-focused .ant-select-selector {
+          border-color: #0f4c3a !important;
+        }
+
+        /* Khi ô bị lỗi validation (has-error) - viền đỏ theo đúng mẫu */
+        .ant-form-item-has-error .custom-auth-input.ant-input,
+        .ant-form-item-has-error .custom-auth-input.ant-input-affix-wrapper,
+        .ant-form-item-has-error .custom-auth-input.ant-select .ant-select-selector {
+          border-color: #ff4d4f !important;
+          box-shadow: 0 0 0 1px #ff4d4f !important;
+          background: #ffffff !important;
+        }
+
+        /* Dấu chấm than đỏ và text lỗi bên dưới */
+        .custom-auth-form .ant-form-item-explain-error {
+          display: flex !important;
+          align-items: center !important;
+          color: #ff4d4f !important;
+          font-size: 12.5px !important;
+          margin-top: 5px !important;
+          line-height: 1.4 !important;
+        }
+
+        .custom-auth-form .ant-form-item-explain-error::before {
+          content: "!" !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          width: 14px !important;
+          height: 14px !important;
+          min-width: 14px !important;
+          background-color: #ff4d4f !important;
+          color: #ffffff !important;
+          border-radius: 50% !important;
+          font-size: 10px !important;
+          font-weight: 800 !important;
+          margin-right: 6px !important;
+          line-height: 1 !important;
+        }
+
+        /* Dấu sao đỏ ngoài lề trái */
+        .required-star {
+          color: #ff4d4f;
+          font-size: 16px;
+          font-weight: bold;
+          line-height: 44px;
+          width: 12px;
+          flex-shrink: 0;
+          text-align: center;
+          user-select: none;
+        }
+      `}</style>
+
       <div
         style={{
           width: '100%',
@@ -328,7 +420,10 @@ export const LoginPage: React.FC = () => {
               <Segmented
                 value={authMode}
                 onChange={(val) => {
-                  setAuthMode(val as 'login' | 'register');
+                  const mode = val as 'login' | 'register';
+                  setAuthMode(mode);
+                  loginForm.resetFields();
+                  registerForm.resetFields();
                 }}
                 block
                 options={[
@@ -372,57 +467,65 @@ export const LoginPage: React.FC = () => {
                   layout="vertical"
                   onFinish={handleLogin}
                   requiredMark={false}
+                  autoComplete="off"
+                  className="custom-auth-form"
                 >
-                  <Form.Item
-                    name="email"
-                    label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Địa chỉ Email</span>}
-                    rules={[
-                      { required: true, message: 'Vui lòng nhập địa chỉ email của bạn' },
-                      { type: 'email', message: 'Email không đúng định dạng' },
-                    ]}
-                    style={{ marginBottom: 18 }}
-                  >
-                    <Input
-                      prefix={<MailOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                      placeholder="name@company.com"
-                      size="large"
-                      style={{ borderRadius: 8, height: 42, borderColor: '#e5e7eb' }}
-                    />
-                  </Form.Item>
+                  {/* Ô nhập Email theo mẫu */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 18 }}>
+                    <span className="required-star">*</span>
+                    <div style={{ flex: 1 }}>
+                      <Form.Item
+                        name="email"
+                        rules={[
+                          { required: true, message: 'Nhập email công việc' },
+                          { type: 'email', message: 'Email không đúng định dạng' },
+                        ]}
+                        style={{ margin: 0 }}
+                      >
+                        <Input
+                          className="custom-auth-input"
+                          placeholder="Email công việc"
+                          autoComplete="off"
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
 
-                  <Form.Item
-                    name="password"
-                    label={
-                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Mật khẩu</span>
-                        <a
-                          href="#forgot"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            message.info('Vui lòng liên hệ Quản trị viên HR để được cấp lại mật khẩu.');
-                          }}
-                          style={{ fontSize: 12.5, color: '#0f4c3a', fontWeight: 500 }}
-                        >
-                          Quên mật khẩu?
-                        </a>
-                      </div>
-                    }
-                    rules={[{ required: true, message: 'Vui lòng nhập mật khẩu' }]}
-                    style={{ marginBottom: 16 }}
-                  >
-                    <Input.Password
-                      prefix={<LockOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                      placeholder="Nhập mật khẩu truy cập..."
-                      size="large"
-                      style={{ borderRadius: 8, height: 42, borderColor: '#e5e7eb' }}
-                    />
-                  </Form.Item>
+                  {/* Ô nhập Mật khẩu theo mẫu */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 16 }}>
+                    <span className="required-star">*</span>
+                    <div style={{ flex: 1 }}>
+                      <Form.Item
+                        name="password"
+                        rules={[{ required: true, message: 'Nhập mật khẩu' }]}
+                        style={{ margin: 0 }}
+                      >
+                        <Input.Password
+                          className="custom-auth-input"
+                          placeholder="Mật khẩu"
+                          autoComplete="new-password"
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
 
-                  <Form.Item name="remember" valuePropName="checked" initialValue={true} style={{ marginBottom: 22 }}>
-                    <Checkbox style={{ color: '#4b5563', fontSize: 13 }}>
-                      Ghi nhớ thông tin đăng nhập trên thiết bị này
-                    </Checkbox>
-                  </Form.Item>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22, marginTop: 4 }}>
+                    <Form.Item name="remember" valuePropName="checked" initialValue={true} style={{ margin: 0 }}>
+                      <Checkbox style={{ color: '#4b5563', fontSize: 13 }}>
+                        Ghi nhớ thông tin đăng nhập
+                      </Checkbox>
+                    </Form.Item>
+                    <a
+                      href="#forgot"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        message.info('Vui lòng liên hệ Quản trị viên HR để được cấp lại mật khẩu.');
+                      }}
+                      style={{ fontSize: 13, color: '#0f4c3a', fontWeight: 500 }}
+                    >
+                      Quên mật khẩu?
+                    </a>
+                  </div>
 
                   <Button
                     type="primary"
@@ -431,7 +534,7 @@ export const LoginPage: React.FC = () => {
                     loading={submitting}
                     style={{
                       height: 44,
-                      borderRadius: 8,
+                      borderRadius: 4,
                       background: '#0f4c3a',
                       borderColor: '#0f4c3a',
                       fontSize: 15,
@@ -447,7 +550,10 @@ export const LoginPage: React.FC = () => {
                 <div style={{ marginTop: 24, textAlign: 'center', fontSize: 13.5, color: '#6b7280' }}>
                   Chưa có tài khoản nhân sự?{' '}
                   <span
-                    onClick={() => setAuthMode('register')}
+                    onClick={() => {
+                      setAuthMode('register');
+                      registerForm.resetFields();
+                    }}
                     style={{ color: '#0f4c3a', fontWeight: 600, cursor: 'pointer' }}
                   >
                     Đăng ký tài khoản mới
@@ -481,117 +587,144 @@ export const LoginPage: React.FC = () => {
                   layout="vertical"
                   onFinish={handleRegister}
                   requiredMark={false}
+                  autoComplete="off"
+                  className="custom-auth-form"
                 >
-                  <Form.Item
-                    name="fullName"
-                    label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Họ và tên</span>}
-                    rules={[{ required: true, message: 'Vui lòng nhập họ và tên của bạn' }]}
-                    style={{ marginBottom: 14 }}
-                  >
-                    <Input
-                      prefix={<UserOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                      placeholder="Ví dụ: Nguyễn Văn An"
-                      size="large"
-                      style={{ borderRadius: 8, height: 40, borderColor: '#e5e7eb' }}
-                    />
-                  </Form.Item>
+                  {/* Họ và tên */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 14 }}>
+                    <span className="required-star">*</span>
+                    <div style={{ flex: 1 }}>
+                      <Form.Item
+                        name="fullName"
+                        rules={[{ required: true, message: 'Nhập họ và tên' }]}
+                        style={{ margin: 0 }}
+                      >
+                        <Input
+                          className="custom-auth-input"
+                          placeholder="Họ và tên"
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
 
                   <Row gutter={12}>
                     <Col xs={24} sm={14}>
-                      <Form.Item
-                        name="email"
-                        label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Email công việc</span>}
-                        rules={[
-                          { required: true, message: 'Vui lòng nhập địa chỉ email' },
-                          { type: 'email', message: 'Email không đúng định dạng' },
-                        ]}
-                        style={{ marginBottom: 14 }}
-                      >
-                        <Input
-                          prefix={<MailOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                          placeholder="name@company.com"
-                          size="large"
-                          style={{ borderRadius: 8, height: 40, borderColor: '#e5e7eb' }}
-                        />
-                      </Form.Item>
+                      {/* Email công việc */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 14 }}>
+                        <span className="required-star">*</span>
+                        <div style={{ flex: 1 }}>
+                          <Form.Item
+                            name="email"
+                            rules={[
+                              { required: true, message: 'Nhập email công việc' },
+                              { type: 'email', message: 'Email không đúng định dạng' },
+                            ]}
+                            style={{ margin: 0 }}
+                          >
+                            <Input
+                              className="custom-auth-input"
+                              placeholder="Email công việc"
+                              autoComplete="off"
+                            />
+                          </Form.Item>
+                        </div>
+                      </div>
                     </Col>
                     <Col xs={24} sm={10}>
-                      <Form.Item
-                        name="phone"
-                        label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Số điện thoại</span>}
-                        style={{ marginBottom: 14 }}
-                      >
-                        <Input
-                          prefix={<PhoneOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                          placeholder="0901234567"
-                          size="large"
-                          style={{ borderRadius: 8, height: 40, borderColor: '#e5e7eb' }}
-                        />
-                      </Form.Item>
+                      {/* Số điện thoại */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 14 }}>
+                        <span className="required-star">*</span>
+                        <div style={{ flex: 1 }}>
+                          <Form.Item
+                            name="phone"
+                            rules={[{ required: true, message: 'Nhập số điện thoại' }]}
+                            style={{ margin: 0 }}
+                          >
+                            <Input
+                              className="custom-auth-input"
+                              placeholder="Số điện thoại"
+                            />
+                          </Form.Item>
+                        </div>
+                      </div>
                     </Col>
                   </Row>
 
-                  <Form.Item
-                    name="departmentId"
-                    label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Phòng ban trực thuộc</span>}
-                    initialValue="dept-tech"
-                    style={{ marginBottom: 14 }}
-                  >
-                    <Select
-                      size="large"
-                      style={{ width: '100%' }}
-                      options={[
-                        { value: 'dept-tech', label: 'Phòng Công nghệ Thông tin (CNTT)' },
-                        { value: 'dept-hr', label: 'Phòng Nhân sự (HR)' },
-                        { value: 'dept-sales', label: 'Phòng Kinh doanh & Tiếp thị' },
-                      ]}
-                    />
-                  </Form.Item>
+                  {/* Phòng ban trực thuộc */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 14 }}>
+                    <span className="required-star">*</span>
+                    <div style={{ flex: 1 }}>
+                      <Form.Item
+                        name="departmentId"
+                        initialValue="dept-tech"
+                        style={{ margin: 0 }}
+                      >
+                        <Select
+                          className="custom-auth-input"
+                          style={{ width: '100%' }}
+                          placeholder="Chọn phòng ban trực thuộc"
+                          options={[
+                            { value: 'dept-tech', label: 'Phòng Công nghệ Thông tin (CNTT)' },
+                            { value: 'dept-hr', label: 'Phòng Nhân sự (HR)' },
+                            { value: 'dept-sales', label: 'Phòng Kinh doanh & Tiếp thị' },
+                          ]}
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
 
                   <Row gutter={12}>
                     <Col xs={24} sm={12}>
-                      <Form.Item
-                        name="password"
-                        label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Mật khẩu</span>}
-                        rules={[
-                          { required: true, message: 'Vui lòng nhập mật khẩu' },
-                          { min: 6, message: 'Mật khẩu tối thiểu 6 ký tự' },
-                        ]}
-                        style={{ marginBottom: 16 }}
-                      >
-                        <Input.Password
-                          prefix={<LockOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                          placeholder="Tối thiểu 6 ký tự..."
-                          size="large"
-                          style={{ borderRadius: 8, height: 40, borderColor: '#e5e7eb' }}
-                        />
-                      </Form.Item>
+                      {/* Mật khẩu */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 16 }}>
+                        <span className="required-star">*</span>
+                        <div style={{ flex: 1 }}>
+                          <Form.Item
+                            name="password"
+                            rules={[
+                              { required: true, message: 'Nhập mật khẩu' },
+                              { min: 6, message: 'Mật khẩu tối thiểu 6 ký tự' },
+                            ]}
+                            style={{ margin: 0 }}
+                          >
+                            <Input.Password
+                              className="custom-auth-input"
+                              placeholder="Mật khẩu"
+                              autoComplete="new-password"
+                            />
+                          </Form.Item>
+                        </div>
+                      </div>
                     </Col>
                     <Col xs={24} sm={12}>
-                      <Form.Item
-                        name="confirmPassword"
-                        label={<span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>Xác nhận mật khẩu</span>}
-                        dependencies={['password']}
-                        rules={[
-                          { required: true, message: 'Vui lòng nhập lại mật khẩu' },
-                          ({ getFieldValue }) => ({
-                            validator(_, value) {
-                              if (!value || getFieldValue('password') === value) {
-                                return Promise.resolve();
-                              }
-                              return Promise.reject(new Error('Mật khẩu xác nhận không khớp!'));
-                            },
-                          }),
-                        ]}
-                        style={{ marginBottom: 16 }}
-                      >
-                        <Input.Password
-                          prefix={<LockOutlined style={{ color: '#9ca3af', marginRight: 4 }} />}
-                          placeholder="Nhập lại mật khẩu..."
-                          size="large"
-                          style={{ borderRadius: 8, height: 40, borderColor: '#e5e7eb' }}
-                        />
-                      </Form.Item>
+                      {/* Xác nhận mật khẩu */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 16 }}>
+                        <span className="required-star">*</span>
+                        <div style={{ flex: 1 }}>
+                          <Form.Item
+                            name="confirmPassword"
+                            dependencies={['password']}
+                            rules={[
+                              { required: true, message: 'Nhập lại mật khẩu' },
+                              ({ getFieldValue }) => ({
+                                validator(_, value) {
+                                  if (!value || getFieldValue('password') === value) {
+                                    return Promise.resolve();
+                                  }
+                                  return Promise.reject(new Error('Mật khẩu xác nhận không khớp'));
+                                },
+                              }),
+                            ]}
+                            style={{ margin: 0 }}
+                          >
+                            <Input.Password
+                              className="custom-auth-input"
+                              placeholder="Xác nhận mật khẩu"
+                              autoComplete="new-password"
+                            />
+                          </Form.Item>
+                        </div>
+                      </div>
                     </Col>
                   </Row>
 
@@ -620,7 +753,7 @@ export const LoginPage: React.FC = () => {
                     loading={submitting}
                     style={{
                       height: 44,
-                      borderRadius: 8,
+                      borderRadius: 4,
                       background: '#0f4c3a',
                       borderColor: '#0f4c3a',
                       fontSize: 15,
@@ -636,7 +769,10 @@ export const LoginPage: React.FC = () => {
                 <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13.5, color: '#6b7280' }}>
                   Đã có tài khoản nhân sự?{' '}
                   <span
-                    onClick={() => setAuthMode('login')}
+                    onClick={() => {
+                      setAuthMode('login');
+                      loginForm.resetFields();
+                    }}
                     style={{ color: '#0f4c3a', fontWeight: 600, cursor: 'pointer' }}
                   >
                     Đăng nhập ngay
