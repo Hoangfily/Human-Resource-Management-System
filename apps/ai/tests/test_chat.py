@@ -14,7 +14,7 @@ from app.deps import get_chat_deps
 from app.llm.fake import FakeLLM
 from app.main import app
 from app.mock_api.fixtures import MockStore, default_balances, default_employee
-from app.schemas.chat import MAX_MESSAGE_CHARS, ChatLLMOutput
+from app.schemas.chat import MAX_MESSAGE_CHARS, ChatDraft, ChatLLMOutput
 from app.tools.base import ApiClient
 
 pytestmark = pytest.mark.anyio
@@ -25,7 +25,13 @@ EMP = "emp-001"
 
 
 def answer(**overrides: object) -> ChatLLMOutput:
-    fields: dict[str, object] = {"intent": "LEAVE_BALANCE", "reply": "Bạn còn 10 ngày phép năm 2026.", "policy_refs": []}
+    fields: dict[str, object] = {
+        "intent": "LEAVE_BALANCE",
+        "reply": "Bạn còn 10 ngày phép năm 2026.",
+        "policy_refs": [],
+        "draft": None,
+        "missing_fields": [],
+    }
     return ChatLLMOutput(**(fields | overrides))  # type: ignore[arg-type]
 
 
@@ -179,3 +185,102 @@ def test_store_is_bounded() -> None:
     for c in ("c1", "c2", "c3"):
         store.add("e", c, Turn("u", "a"))
     assert store.history("e", "c1") == [] and store.history("e", "c3") != []
+
+
+# ---- drafting requests into action cards (today = Monday 2026-10-19) ----
+def draft(**fields: object) -> ChatDraft:
+    empty = {f: None for f in ChatDraft.model_fields if f != "request_type"}
+    return ChatDraft(**({"request_type": "LEAVE"} | empty | fields))  # type: ignore[arg-type]
+
+
+def drafting(d: ChatDraft, missing: list[str] | None = None, reply: str = "Bạn kiểm tra thẻ rồi bấm Xác nhận gửi duyệt nhé.") -> ChatLLMOutput:
+    return answer(intent="CREATE_REQUEST", reply=reply, draft=d, missing_fields=missing or [])
+
+
+LEAVE_NOV_5 = draft(leave_type="ANNUAL", start_date="2026-11-05", end_date="2026-11-05", reason="Đưa con đi khám")
+
+
+async def test_complete_leave_becomes_a_card_in_the_api_format(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(LEAVE_NOV_5)]
+    body = (await chat(client, turn("Cho tôi nghỉ phép 5/11 để đưa con đi khám"))).json()
+    card = body["actionCard"]
+    assert card["payload"] == {"leaveType": "ANNUAL", "startDate": "2026-11-05", "endDate": "2026-11-05", "reason": "Đưa con đi khám"}
+    assert (card["requestType"], card["riskLevel"], card["status"], card["type"]) == ("LEAVE", "LOW", "draft", "REQUEST_DRAFT")
+    assert card["data"] == {
+        "typeName": "Nghỉ phép năm",
+        "leaveType": "ANNUAL",
+        "dates": "05/11/2026",
+        "durationText": "1 ngày làm việc",
+        "daysCount": 1.0,
+        "reason": "Đưa con đi khám",
+    }
+    assert [c["passed"] for c in card["policyChecks"]] == [True]
+    assert body["reply"].startswith("Mình đã soạn đơn nghỉ phép năm (05/11/2026)")
+
+
+async def test_broken_rule_is_shown_on_the_card(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    # Overlaps the PENDING demo leave of 29–30/10
+    llm.responses = [drafting(draft(leave_type="ANNUAL", start_date="2026-10-30", end_date="2026-10-30", reason="Việc nhà"))]
+    body = (await chat(client, turn("Nghỉ phép 30/10"))).json()
+    card = body["actionCard"]
+    assert card["riskLevel"] == "MEDIUM"
+    assert any(not c["passed"] and "Trùng ngày" in c["description"] for c in card["policyChecks"])
+    assert "chưa đạt một số quy định" in body["reply"]
+
+
+async def test_missing_field_asks_instead_of_a_card(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(draft(leave_type="ANNUAL", start_date="2026-11-05", end_date="2026-11-05"), reply="Lý do nghỉ là gì?", missing=["reason"])]
+    body = (await chat(client, turn("Cho tôi nghỉ phép 5/11"))).json()
+    assert "actionCard" not in body and body["reply"] == "Lý do nghỉ là gì?"
+
+
+async def test_code_asks_when_the_model_forgot_a_field(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(draft(request_type="ATTENDANCE_EXPLANATION", date="2026-10-16", issue="MISSING_CLOCK_IN", reason="Quên quẹt thẻ"))]
+    body = (await chat(client, turn("Hôm thứ 6 tôi quên chấm công vào")))
+    assert "actionCard" not in body.json() and "giờ cần ghi nhận" in body.json()["reply"]
+
+
+@pytest.mark.parametrize(
+    ("d", "expected"),
+    [
+        (draft(request_type="OVERTIME", date="2026-10-23", start_time="6h", end_time="20:00", reason="Triển khai"), "dạng 24 giờ"),
+        (draft(leave_type="ANNUAL", start_date="2026-11-06", end_date="2026-11-05", reason="x"), "chưa hợp lệ"),
+        (draft(leave_type="ANNUAL", start_date="2026-10-24", end_date="2026-10-25", reason="x"), "thứ 7 và chủ nhật"),
+    ],
+)
+async def test_invalid_draft_is_explained(client: httpx.AsyncClient, llm: FakeLLM, d: ChatDraft, expected: str) -> None:
+    llm.responses = [drafting(d)]
+    body = (await chat(client, turn("..."))).json()
+    assert "actionCard" not in body and expected in body["reply"]
+
+
+async def test_overtime_card(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(draft(request_type="OVERTIME", date="2026-10-23", start_time="18:00", end_time="20:00", reason="Triển khai bản mới"))]
+    card = (await chat(client, turn("Đăng ký OT thứ 6 từ 18h đến 20h"))).json()["actionCard"]
+    assert card["payload"] == {"date": "2026-10-23", "startTime": "18:00", "endTime": "20:00", "reason": "Triển khai bản mới"}
+    assert card["data"]["durationText"] == "2 giờ (18:00–20:00)"
+
+
+async def test_draft_is_ignored_outside_create_request(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [answer(draft=LEAVE_NOV_5)]  # intent LEAVE_BALANCE
+    assert "actionCard" not in (await chat(client, turn("Tôi còn bao nhiêu ngày phép?"))).json()
+
+
+async def test_card_is_remembered_for_amendments(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(LEAVE_NOV_5), answer()]
+    await chat(client, turn("Nghỉ phép 5/11 đưa con đi khám", "c1"))
+    await chat(client, turn("Đổi sang ngày 6/11 nhé", "c1"))
+    assert "[Thẻ đơn đã soạn: Đơn nghỉ phép năm, 05/11/2026" in llm.prompts[1][1]
+
+
+async def test_card_reply_does_not_ask_for_fields_it_has(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    llm.responses = [drafting(LEAVE_NOV_5, reply="Bạn cho biết lý do nhé?", missing=["reason"])]
+    body = (await chat(client, turn("Nghỉ phép 5/11 đưa con đi khám"))).json()
+    assert body["actionCard"] and body["reply"].startswith("Mình đã soạn đơn nghỉ phép năm (05/11/2026)")
+
+
+async def test_calendar_resolves_relative_days(client: httpx.AsyncClient, llm: FakeLLM) -> None:
+    await chat(client, turn("Thứ 6 tuần sau"))
+    user = llm.prompts[0][1]
+    assert "- 2026-10-19 (Thứ 2): hôm nay" in user and "- 2026-10-20 (Thứ 3): ngày mai" in user
+    assert "- 2026-10-23 (Thứ 6): tuần này" in user and "- 2026-10-30 (Thứ 6): tuần sau" in user
