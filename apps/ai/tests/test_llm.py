@@ -493,3 +493,30 @@ def test_any_build_error_becomes_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(llm_module, "get_llm", no_sdk)
     llm = llm_module.get_llm_or_unavailable(get_settings())
     assert isinstance(llm, llm_module.UnavailableLLM) and "ImportError" in llm.cause
+
+
+async def test_openai_effort_is_sent_for_reasoning_models_only() -> None:
+    stub = stub_openai(SimpleNamespace(output_parsed=Reply(answer="ok")))
+    llm = OpenAIClient("", "gpt-5.6-luna", client=stub)
+    await llm.complete("s", "u", Reply, effort="low")
+    await llm.complete("s", "u", Reply)  # Decision mode keeps the cheapest setting
+    assert [c["reasoning"] for c in stub.calls] == [{"effort": "low"}, {"effort": "none"}]
+
+    stub = stub_openai(SimpleNamespace(output_parsed=Reply(answer="ok")))
+    await OpenAIClient("", "gpt-4.1-mini", client=stub).complete("s", "u", Reply, effort="low")
+    assert "reasoning" not in stub.calls[0] and "temperature" in stub.calls[0]
+
+
+async def test_rejected_effort_falls_back_and_is_remembered_per_effort() -> None:
+    calls: list[dict[str, Any]] = []
+    llm = OpenAIClient("", "gpt-5.9-new", client=parse_rejecting({"low"}, calls))
+    await llm.complete("s", "u", ASSESSMENT.__class__, effort="low")
+    await llm.complete("s", "u", ASSESSMENT.__class__, effort="low")
+    assert [c.get("reasoning") for c in calls] == [{"effort": "low"}, None, None]
+
+
+def test_effort_never_lowers_a_models_own_setting() -> None:
+    from app.llm.openai_client import _more
+
+    assert _more("low", "none") and _more("low", "minimal")
+    assert not _more("low", "high") and not _more("low", "low") and not _more("weird", "none")

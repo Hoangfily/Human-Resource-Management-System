@@ -1,0 +1,14 @@
+{
+  "id": "chat-16-draft-missing-reason",
+  "description": "Thiếu lý do: hỏi lại, chưa có card",
+  "today": "2026-10-19",
+  "turns": [
+    "Cho tôi nghỉ phép ngày 5/11"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": null
+  }
+}

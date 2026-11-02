@@ -60,7 +60,7 @@ class UnavailableLLM:
     async def assess(self, system: str, user: str) -> LLMAssessment:
         raise LLMError(f"LLM is not configured: {self.cause}")
 
-    async def complete(self, system: str, user: str, schema: type[BaseModel]) -> BaseModel:
+    async def complete(self, system: str, user: str, schema: type[BaseModel], *, effort: str | None = None) -> BaseModel:
         raise LLMError(f"LLM is not configured: {self.cause}")
 
 

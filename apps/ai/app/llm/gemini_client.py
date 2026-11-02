@@ -31,7 +31,9 @@ class GeminiClient(FallbackLLM):
             http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=2)),
         )
 
-    async def _call(self, model: str, system: str, user: str, schema: type[BaseModel]) -> tuple[Any, str | None]:
+    async def _call(
+        self, model: str, system: str, user: str, schema: type[BaseModel], effort: str | None = None
+    ) -> tuple[Any, str | None]:  # effort: Gemini thinking budgets are not tuned here
         config = types.GenerateContentConfig(
             system_instruction=system,
             response_mime_type="application/json",

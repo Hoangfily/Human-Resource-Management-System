@@ -1,0 +1,21 @@
+{
+  "id": "chat-05-request-status",
+  "description": "Hỏi trạng thái đơn đang chờ",
+  "today": "2026-10-19",
+  "turns": [
+    "Đơn nghỉ 29/10 của tôi duyệt chưa?"
+  ],
+  "expected": {
+    "intent": [
+      "REQUEST_STATUS"
+    ],
+    "card": null,
+    "reply_contains": [
+      "chờ duyệt"
+    ],
+    "reply_not_contains": [
+      "đã được duyệt",
+      "đã duyệt"
+    ]
+  }
+}

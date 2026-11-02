@@ -22,8 +22,9 @@ class LLMClient(Protocol):
 
     async def assess(self, system: str, user: str) -> LLMAssessment: ...
 
-    async def complete(self, system: str, user: str, schema: type[T]) -> T:
-        """Structured output of any schema (e.g. a chat turn); same fallback and error rules as assess."""
+    async def complete(self, system: str, user: str, schema: type[T], *, effort: str | None = None) -> T:
+        """Structured output of any schema (e.g. a chat turn); same fallback and error rules as assess.
+        `effort`: reasoning effort for models that have one (None = the cheapest each model accepts)."""
         ...
 
 
@@ -42,11 +43,11 @@ class FallbackLLM:
     async def assess(self, system: str, user: str) -> LLMAssessment:
         return await self.complete(system, user, LLMAssessment)
 
-    async def complete(self, system: str, user: str, schema: type[T]) -> T:
+    async def complete(self, system: str, user: str, schema: type[T], *, effort: str | None = None) -> T:
         errors: list[str] = []
         for model in self.models:
             try:
-                result = await self._complete_once(model, system, user, schema)
+                result = await self._complete_once(model, system, user, schema, effort)
             except LLMError as exc:
                 errors.append(f"{model}: {exc}")
                 continue
@@ -57,9 +58,9 @@ class FallbackLLM:
         self.last_model = "/".join(self.models)  # Every model was tried; not the last one that worked
         raise LLMError("; ".join(errors))
 
-    async def _complete_once(self, model: str, system: str, user: str, schema: type[T]) -> T:
+    async def _complete_once(self, model: str, system: str, user: str, schema: type[T], effort: str | None) -> T:
         try:
-            parsed, text = await asyncio.wait_for(self._call(model, system, user, schema), timeout=self.timeout_s)
+            parsed, text = await asyncio.wait_for(self._call(model, system, user, schema, effort), timeout=self.timeout_s)
         except TimeoutError as exc:
             raise LLMError(f"timed out after {self.timeout_s}s") from exc
         except ValidationError as exc:  # The SDK parsed the reply itself; its message quotes the model text
@@ -74,6 +75,8 @@ class FallbackLLM:
         except ValidationError as exc:
             raise LLMError(f"invalid output: {(text or '')[:200]}") from exc
 
-    async def _call(self, model: str, system: str, user: str, schema: type[BaseModel]) -> tuple[Any, str | None]:
+    async def _call(
+        self, model: str, system: str, user: str, schema: type[BaseModel], effort: str | None = None
+    ) -> tuple[Any, str | None]:
         """One SDK call asking for `schema`: (parsed output or None, raw text)."""
         raise NotImplementedError

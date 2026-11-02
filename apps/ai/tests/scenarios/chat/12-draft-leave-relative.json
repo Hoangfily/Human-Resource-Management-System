@@ -1,0 +1,21 @@
+{
+  "id": "chat-12-draft-leave-relative",
+  "description": "Thứ 4 tuần sau",
+  "today": "2026-10-19",
+  "turns": [
+    "Tôi xin nghỉ phép thứ 4 tuần sau để về quê"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "LEAVE",
+      "payload": {
+        "leaveType": "ANNUAL",
+        "startDate": "2026-10-28",
+        "endDate": "2026-10-28"
+      }
+    }
+  }
+}

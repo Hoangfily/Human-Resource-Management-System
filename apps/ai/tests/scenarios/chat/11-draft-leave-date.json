@@ -1,0 +1,21 @@
+{
+  "id": "chat-11-draft-leave-date",
+  "description": "Nghỉ phép 1 ngày, ngày rõ, có lý do",
+  "today": "2026-10-19",
+  "turns": [
+    "Cho tôi nghỉ phép ngày 5/11 để đưa con đi khám"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "LEAVE",
+      "payload": {
+        "leaveType": "ANNUAL",
+        "startDate": "2026-11-05",
+        "endDate": "2026-11-05"
+      }
+    }
+  }
+}

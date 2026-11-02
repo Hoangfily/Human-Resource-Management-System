@@ -26,6 +26,7 @@ class ChatDraft(BaseModel):
     date: str | None = Field(description="OVERTIME and ATTENDANCE_EXPLANATION: YYYY-MM-DD")
     start_time: str | None = Field(description="OVERTIME: HH:mm, 24h")
     end_time: str | None = Field(description="OVERTIME: HH:mm, 24h")
+    duration_hours: float | None = Field(description="OVERTIME: hours, when they give a length instead of an end time")
     issue: Literal["MISSING_CLOCK_IN", "MISSING_CLOCK_OUT", "LATE", "EARLY_LEAVE"] | None = Field(
         description="ATTENDANCE_EXPLANATION only"
     )
@@ -40,7 +41,6 @@ class ChatLLMOutput(BaseModel):
     reply: str = Field(description="Answer to the employee, in Vietnamese, short")
     policy_refs: list[str] = Field(description="Keys of the provided policies the reply relies on; empty if none")
     draft: ChatDraft | None = Field(description="CREATE_REQUEST only: the request being prepared, else null")
-    missing_fields: list[str] = Field(description="CREATE_REQUEST: draft fields still needed, else empty")
 
 
 class ChatRequest(ApiModel):

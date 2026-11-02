@@ -1,0 +1,21 @@
+{
+  "id": "chat-20-draft-overtime-duration",
+  "description": "Làm thêm 2 tiếng từ 7h tối mai",
+  "today": "2026-10-19",
+  "turns": [
+    "Mai tôi làm thêm 2 tiếng từ 7h tối để chạy kiểm thử"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "OVERTIME",
+      "payload": {
+        "date": "2026-10-20",
+        "startTime": "19:00",
+        "endTime": "21:00"
+      }
+    }
+  }
+}

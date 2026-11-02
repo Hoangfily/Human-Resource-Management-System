@@ -27,7 +27,7 @@ class FakeLLM:
     async def assess(self, system: str, user: str) -> LLMAssessment:
         return await self.complete(system, user, LLMAssessment)
 
-    async def complete(self, system: str, user: str, schema: type[T]) -> T:
+    async def complete(self, system: str, user: str, schema: type[T], *, effort: str | None = None) -> T:
         self.prompts.append((system, user))
         if not self.responses:
             if schema is LLMAssessment:

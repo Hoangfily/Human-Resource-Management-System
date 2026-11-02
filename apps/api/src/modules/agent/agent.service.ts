@@ -198,7 +198,8 @@ export class AgentService {
     });
 
     return {
-      conversationId: dto.conversationId || 'conv-default',
+      // Không tự đặt id dùng chung (vd 'conv-default'): mọi cuộc chat sau lần dự phòng sẽ chung bộ nhớ của AI
+      conversationId: dto.conversationId ?? null,
       reply,
       message: reply,
       sources: policyReferences,

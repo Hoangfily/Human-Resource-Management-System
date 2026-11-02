@@ -51,6 +51,31 @@ class DraftResult:
     problem: str | None  # Question or explanation for the employee when there is no card
 
 
+def with_defaults(draft: ChatDraft) -> ChatDraft:
+    """Fill what follows from what was said: one-day leave, OT end time from its length."""
+    updates: dict[str, str] = {}
+    if draft.request_type == "LEAVE" and draft.date and not draft.start_date:  # The day put in the OT/attendance field
+        updates["start_date"] = draft.date
+    start = updates.get("start_date", draft.start_date)
+    if draft.request_type == "LEAVE" and start and not draft.end_date:
+        updates["end_date"] = start
+    if draft.request_type != "LEAVE" and draft.start_date and not draft.date:  # The day put in the leave field
+        updates["date"] = draft.start_date
+    if (
+        draft.request_type == "OVERTIME"
+        and draft.start_time
+        and _HH_MM.match(draft.start_time)
+        and not draft.end_time
+        and draft.duration_hours
+        and 0 < draft.duration_hours <= 24
+    ):
+        h, m = map(int, draft.start_time.split(":"))
+        end = h * 60 + m + round(draft.duration_hours * 60)
+        if end < 24 * 60:  # Overnight OT is not supported by the API: leave it for the employee to say
+            updates["end_time"] = f"{end // 60:02d}:{end % 60:02d}"
+    return draft.model_copy(update=updates) if updates else draft
+
+
 def missing_fields(draft: ChatDraft) -> list[str]:
     need = list(REQUIRED[draft.request_type])
     if draft.request_type == "ATTENDANCE_EXPLANATION" and draft.issue in ("MISSING_CLOCK_IN", "MISSING_CLOCK_OUT"):
@@ -86,6 +111,10 @@ def _hours(start: str, end: str) -> float:
 async def build_card(
     draft: ChatDraft, employee_id: str, api: ApiClient, settings: Settings, today: date
 ) -> DraftResult:
+    draft = with_defaults(draft)
+    if draft.request_type == "OVERTIME" and draft.start_time and not draft.end_time and draft.duration_hours:
+        # with_defaults did not derive an end time: the overtime would end after midnight
+        return DraftResult(None, "Đơn làm thêm qua nửa đêm chưa được hỗ trợ. Bạn tách thành 2 đơn (trước và sau 00:00) hoặc tạo ở trang Đơn từ nhé.")
     missing = missing_fields(draft)
     if missing:
         names = ", ".join(FIELD_NAMES[f] for f in missing)
