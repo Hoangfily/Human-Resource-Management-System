@@ -36,6 +36,9 @@ services:
       AI_API_BASE_URL: http://ai:8000
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
       AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:-}
+      # Bắt buộc: thiếu thì API không khởi động (đặt trong .env ở gốc repo)
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:

@@ -3,9 +3,14 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { jwtSecret } from './jwt-secrets';
 
 @Injectable()
 export class AuthService {
+  // Đọc lúc khởi tạo: thiếu biến nào thì API dừng ngay khi khởi động, không đợi tới lần đăng nhập đầu tiên
+  private readonly accessTokenSecret = jwtSecret('JWT_ACCESS_SECRET');
+  private readonly refreshTokenSecret = jwtSecret('JWT_REFRESH_SECRET');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -36,18 +41,13 @@ export class AuthService {
       role: employee.role,
     };
 
-    const accessTokenSecret =
-      process.env.JWT_ACCESS_SECRET || 'hr_agent_super_secret_jwt_access_token_key_2026';
-    const refreshTokenSecret =
-      process.env.JWT_REFRESH_SECRET || 'hr_agent_super_secret_jwt_refresh_token_key_2026';
-
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: accessTokenSecret,
+        secret: this.accessTokenSecret,
         expiresIn: '24h',
       }),
       this.jwtService.signAsync(payload, {
-        secret: refreshTokenSecret,
+        secret: this.refreshTokenSecret,
         expiresIn: '7d',
         // jti ngẫu nhiên: 2 lần đăng nhập trong cùng 1 giây không sinh ra token trùng (token là unique trong DB)
         jwtid: randomUUID(),
@@ -87,15 +87,10 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-    const refreshTokenSecret =
-      process.env.JWT_REFRESH_SECRET || 'hr_agent_super_secret_jwt_refresh_token_key_2026';
-    const accessTokenSecret =
-      process.env.JWT_ACCESS_SECRET || 'hr_agent_super_secret_jwt_access_token_key_2026';
-
     let payload: { sub: string; email: string; role: string };
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: refreshTokenSecret,
+        secret: this.refreshTokenSecret,
       });
     } catch {
       throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
@@ -129,11 +124,11 @@ export class AuthService {
 
     const [newAccessToken, newRefreshToken] = await Promise.all([
       this.jwtService.signAsync(newPayload, {
-        secret: accessTokenSecret,
+        secret: this.accessTokenSecret,
         expiresIn: '24h',
       }),
       this.jwtService.signAsync(newPayload, {
-        secret: refreshTokenSecret,
+        secret: this.refreshTokenSecret,
         expiresIn: '7d',
         jwtid: randomUUID(),
       }),
