@@ -1,8 +1,9 @@
 # TÀI LIỆU BÀN GIAO & HƯỚNG DẪN KẾT NỐI AI SERVICE
-> **Phiên bản:** 1.0 (Chính thức)  
+> **Phiên bản:** 1.1 (đối chiếu lại với code `apps/api` và `apps/ai`)  
 > **Dành cho:** Kỹ sư / Đội ngũ phát triển AI Service (`apps/ai`)  
 > **Dự án:** Hệ thống Quản trị Nhân sự Doanh nghiệp Hiện đại (Enterprise HRMS)  
-> **Trạng thái:** Backend API & Frontend Web đã hoàn tất 100%, sẵn sàng kết nối.
+> **Trạng thái:** Backend API & Frontend Web đã kết nối với AI Service, đã chạy thử end-to-end (AI tự duyệt đơn nghỉ phép rủi ro thấp).  
+> Contract chi tiết (lý do thiết kế, idempotency, trace): xem `docs/06-ai-integration.md`.
 
 ---
 
@@ -20,20 +21,20 @@ sequenceDiagram
 
     NV->>API: 1. Gửi đơn mới (POST /api/v1/requests)
     API->>API: 2. Lưu trạng thái PENDING
-    API-->>NV: 3. Trả về thành công (UI mượt mà, không bị treo)
-    
-    API-)AI: 4. Kích hoạt ngầm (POST :8000/evaluate)<br/>Header: x-service-token: AI_INBOUND_TOKEN
-    
-    AI->>API: 5. Đọc bổ trợ dữ liệu: quẹt thẻ, lịch ca, 9 quy chế<br/>Header: Authorization: Bearer AI_SERVICE_TOKEN
-    API-->>AI: 6. Trả về dữ liệu thô (Events, Schedules, Policies)
-    
-    Note over AI: AI suy luận & đối soát 9 quy chế<br/>Đánh giá Rủi ro (LOW / MEDIUM / HIGH)
-    
-    alt Đạt ngưỡng tự trị an toàn (Low Risk, Confidence >= 0.85)
-        AI->>API: 7a. Phê duyệt tự động (POST /api/v1/requests/:id/ai-decision)<br/>action: APPROVE, decision: APPROVED
-        API->>API: 8a. Tự động duyệt đơn & trừ ngày phép
-    else Có rủi ro hoặc vượt ngưỡng tự trị (Escalation)
-        AI->>API: 7b. Gửi khuyến nghị (POST /api/v1/requests/:id/ai-decision)<br/>action: ESCALATE_TO_HUMAN, riskLevel: HIGH
+    API-->>NV: 3. Trả về thành công (UI không bị treo)
+
+    API-)AI: 4. Kích hoạt ngầm (POST :8000/evaluate, body {"requestId"})<br/>Header: X-Service-Token: AI_INBOUND_TOKEN
+
+    AI->>API: 5. Đọc dữ liệu: đơn, nhân viên, quỹ phép, chấm công, lịch ca, quy chế<br/>Header: Authorization: Bearer AI_SERVICE_TOKEN
+    API-->>AI: 6. Trả về dữ liệu thô
+
+    Note over AI: Code kiểm tra luật cứng, LLM đánh giá phần còn lại<br/>Đánh giá Rủi ro (LOW / MEDIUM / HIGH)
+
+    alt AI đề xuất APPROVED / REJECTED
+        AI->>API: 7a. POST /api/v1/requests/:id/ai-decision<br/>decision: APPROVED, riskLevel: LOW, confidence: 0.9
+        API->>API: 8a. Kiểm tra lại mức tự chủ, rủi ro, độ tin cậy<br/>Đạt: áp dụng quyết định & trừ ngày phép<br/>Không đạt: tự chuyển ESCALATED
+    else Có rủi ro hoặc không chắc chắn
+        AI->>API: 7b. POST /api/v1/requests/:id/escalate<br/>reason, riskLevel: HIGH
         API->>API: 8b. Chuyển vào hàng đợi của Quản lý kèm giải trình AI
         QL->>API: 8c. Quản lý xem xét và ra quyết định cuối cùng
     end
@@ -43,103 +44,124 @@ sequenceDiagram
 
 ## 2. THÔNG TIN BẢO MẬT & CẤU HÌNH TOKEN NỘI BỘ
 
-Để đảm bảo an toàn tuyệt đối, hai dịch vụ giao tiếp nội bộ thông qua cặp Secret Token đã được cấu hình đồng bộ sẵn:
+Hai dịch vụ giao tiếp nội bộ thông qua cặp Secret Token. Giá trị dưới đây chỉ dùng cho máy local; khi deploy thật phải đổi sang giá trị ngẫu nhiên mới.
 
-| Tên biến môi trường | Giá trị mặc định (Local/Docker) | Mục đích sử dụng |
-|---|---|---|
-| `AI_SERVICE_TOKEN` | `ai-service-secret-token-hr-2026` | **AI gọi vào API**: Dùng trong header `Authorization: Bearer ...` khi AI gọi các API của Backend. |
-| `AI_INBOUND_TOKEN` | `ai-inbound-secret-token-hr-2026` | **API gọi sang AI**: Dùng trong header `x-service-token: ...` khi API kích hoạt endpoint `/evaluate` của AI. |
-| `API_BASE_URL` | `http://localhost:3000/api/v1` (Local) <br/> `http://api:3000/api/v1` (Docker) | Địa chỉ gốc của Backend API. |
-| `AI_SERVICE_URL` | `http://localhost:8000` (Local) <br/> `http://ai:8000` (Docker) | Địa chỉ gốc của AI Service. |
+| Tên biến môi trường | Đặt ở | Giá trị mặc định (Local/Docker) | Mục đích sử dụng |
+|---|---|---|---|
+| `AI_SERVICE_TOKEN` | API và AI | `ai-service-secret-token-hr-2026` | **AI gọi vào API**: header `Authorization: Bearer ...`. API chỉ đọc header này. |
+| `AI_INBOUND_TOKEN` | API và AI | `ai-inbound-secret-token-hr-2026` | **API gọi sang AI**: header `X-Service-Token: ...` khi gọi `/evaluate`. |
+| `API_BASE_URL` | AI | `http://localhost:3000` (Local) <br/> `http://api:3000` (Docker) | Địa chỉ gốc của Backend API, **không** kèm `/api/v1` (AI tự nối thêm). |
+| `AI_API_BASE_URL` | API | `http://localhost:8000` (Local) <br/> `http://ai:8000` (Docker) | Địa chỉ gốc của AI Service. Không đặt thì API dùng `http://127.0.0.1:8000`. |
+| `OPENAI_API_KEY` | AI | (để trống trong file mẫu) | Key LLM. Đặt trong `apps/ai/.env` (local) hoặc `.env` ở gốc repo (Docker). Không commit. |
+
+> Lưu ý: `apps/api/.env.example` đang ghi `AI_SERVICE_URL`, nhưng code API đọc `AI_API_BASE_URL`.
+
+Cấu hình LLM của AI (`LLM_PROVIDER`, `LLM_MODEL`, `LLM_FALLBACK_MODELS`, `LLM_TIMEOUT_S`): xem `apps/ai/.env.example`. Để trống thì dùng OpenAI `gpt-5.6-luna`, dự phòng `gpt-6-luna`.
 
 ---
 
 ## 3. DANH SÁCH API CONTRACTS DÀNH RIÊNG CHO AI SERVICE
 
-### 3.1. Gửi Quyết định Thẩm định / Duyệt tự động (AI ➔ API)
+Mọi endpoint dưới đây có tiền tố `/api/v1` và xác thực bằng `Authorization: Bearer <AI_SERVICE_TOKEN>`. Khi đó API coi người gọi là `{ id: 'ai-service', role: 'AI' }`.
+
+### 3.1. Gửi Quyết định Tự động (AI ➔ API)
 * **Endpoint:** `POST /api/v1/requests/:id/ai-decision`
-* **Xác thực:** Header `Authorization: Bearer ai-service-secret-token-hr-2026` (hoặc `x-service-token`)
 * **Body Request mẫu:**
 ```json
 {
-  "action": "APPROVE",
-  "confidenceScore": 0.95,
-  "reason": "Nhân viên còn đủ 11 ngày phép năm 2026. Đơn tạo trước 3 ngày, không trùng lịch dự án quan trọng theo Điều 2 Quy chế Nghỉ phép.",
+  "decision": "APPROVED",
+  "reason": "Nhân viên còn đủ ngày phép năm, đơn tạo trước 7 ngày, không trùng đơn nghỉ khác.",
   "riskLevel": "LOW",
-  "policyViolations": [],
-  "metadata": {
-    "model": "gemini-3.8-flash",
-    "executionTimeMs": 620
+  "confidence": 0.9,
+  "policyRefs": ["LEAVE.NOTICE_DAYS"],
+  "idempotencyKey": "ai-eval:<requestId>:<updatedAt>",
+  "trace": {
+    "mode": "DECISION",
+    "model": "gpt-5.6-luna",
+    "promptVersion": "...",
+    "toolCalls": []
   }
 }
 ```
 * **Các giá trị hợp lệ:**
-  - `action`: `'APPROVE'` (Duyệt thẳng) | `'REJECT'` (Từ chối thẳng) | `'ESCALATE_TO_HUMAN'` (Chuyển cấp quản lý) | `'FLAG'` (Gắn cờ nghi vấn)
+  - `decision`: `'APPROVED'` | `'REJECTED'`
   - `riskLevel`: `'LOW'` | `'MEDIUM'` | `'HIGH'`
-  - `confidenceScore`: Số thực từ `0.0` đến `1.0`
-* **Response (200 OK):**
+  - `confidence`: số thực từ `0.0` đến `1.0`
+  - `policyRefs`, `idempotencyKey`, `trace`: không bắt buộc
+* **API kiểm tra lại trước khi áp dụng:** mức tự chủ của loại đơn (`AutonomyConfig`, mặc định `SUGGEST_ONLY`), `riskLevel` phải là `LOW`, `confidence` ≥ `minConfidence` (mặc định `0.85`). Không đạt thì đơn chuyển `ESCALATED`.
+* **Response (201):**
 ```json
-{
-  "success": true,
-  "requestId": "d8fee2db-3679-4a7c-8ed9-90b30cae4a58",
-  "status": "APPROVED",
-  "appliedAutonomyLevel": "FULL",
-  "message": "Đơn đã được phê duyệt tự động bởi AI"
-}
+{ "id": "d8fee2db-...", "status": "APPROVED", "applied": true, "decidedBy": "AI" }
 ```
+  - Không đạt điều kiện tự chủ: `{ "id", "status": "ESCALATED", "applied": false, "escalationReason": "..." }`
+  - Gửi lại cùng `idempotencyKey` khi đơn đã có quyết định: trả lại trạng thái hiện tại, `applied` = trạng thái có khớp `decision` hay không.
+  - Đơn không còn `PENDING` và không có `idempotencyKey`: `409` với `code: "INVALID_TRANSITION"`.
 
 ---
 
-### 3.2. Đọc Dữ liệu Quẹt thẻ Chấm công thô (AI ➔ API)
+### 3.2. Chuyển cấp cho Con người (AI ➔ API)
+* **Endpoint:** `POST /api/v1/requests/:id/escalate`
+* **Body Request mẫu:**
+```json
+{
+  "reason": "Nhân viên đã nghỉ 5 lần trong 2 tuần, cần quản lý xem xét.",
+  "riskLevel": "HIGH",
+  "idempotencyKey": "ai-eval:<requestId>:<updatedAt>",
+  "trace": { "mode": "DECISION", "model": "gpt-5.6-luna", "promptVersion": "..." }
+}
+```
+* `reason` bắt buộc; `riskLevel`, `idempotencyKey`, `trace` không bắt buộc.
+
+---
+
+### 3.3. Đọc Dữ liệu Quẹt thẻ Chấm công thô (AI ➔ API)
 * **Endpoint:** `GET /api/v1/attendance/events`
-* **Xác thực:** Header `Authorization: Bearer <AI_SERVICE_TOKEN>`
 * **Query Parameters:**
   - `employeeId` (string, UUID): Mã nhân viên cần tra cứu
-  - `startDate` (string, ISO: `YYYY-MM-DD`)
-  - `endDate` (string, ISO: `YYYY-MM-DD`)
-* **Response (200 OK):**
+  - `from` (string, `YYYY-MM-DD`)
+  - `to` (string, `YYYY-MM-DD`, tính cả ngày này)
+* **Response (200 OK):** sắp xếp theo `timestamp` tăng dần
 ```json
 [
   {
     "id": "cf7ea4be-89fa-4d99-a03b-08bfe782fb65",
     "employeeId": "db5c74fa-67eb-4fc3-9331-422807c76a72",
     "type": "CLOCK_IN",
-    "timestamp": "2026-11-02T01:30:00.000Z",
-    "location": "Văn phòng chính (Tầng 4)",
-    "deviceInfo": "Web Client"
+    "timestamp": "2026-11-02T01:30:00.000Z"
   },
   {
     "id": "087303d6-7436-4143-acac-a9cd0d0a5543",
     "employeeId": "db5c74fa-67eb-4fc3-9331-422807c76a72",
     "type": "CLOCK_OUT",
-    "timestamp": "2026-11-02T10:30:00.000Z",
-    "location": "Văn phòng chính (Tầng 4)",
-    "deviceInfo": "Web Client"
+    "timestamp": "2026-11-02T10:30:00.000Z"
   }
 ]
 ```
 
 ---
 
-### 3.3. Đọc Lịch phân ca phòng ban (AI ➔ API)
+### 3.4. Đọc Lịch phân ca (AI ➔ API)
 * **Endpoint:** `GET /api/v1/shifts/schedules`
-* **Xác thực:** Header `Authorization: Bearer <AI_SERVICE_TOKEN>`
 * **Query Parameters:**
-  - `departmentId` (string, UUID): Lấy lịch ca của toàn bộ nhân viên trong phòng
-  - `date` (string, `YYYY-MM-DD`): Ngày cần kiểm tra
-* **Response (200 OK):**
+  - `employeeId` (string, UUID): lịch ca của một nhân viên, **hoặc**
+  - `departmentId` (string, UUID): lịch ca của toàn bộ nhân viên trong phòng
+  - `from`, `to` (string, `YYYY-MM-DD`, tính cả hai đầu)
+* **Response (200 OK):** sắp xếp theo `date` tăng dần
 ```json
 [
   {
     "id": "schedule-uuid-1",
     "employeeId": "emp-uuid-1",
-    "employeeName": "Nguyễn Văn A",
-    "date": "2026-11-02",
-    "shift": {
-      "id": "shift-uuid-1",
-      "name": "Ca hành chính tiêu chuẩn",
-      "startTime": "08:30",
-      "endTime": "17:30"
+    "date": "2026-11-02T00:00:00.000Z",
+    "shiftStart": "2026-11-02T01:30:00.000Z",
+    "shiftEnd": "2026-11-02T10:30:00.000Z",
+    "employee": {
+      "id": "emp-uuid-1",
+      "fullName": "Nguyễn Văn A",
+      "email": "...",
+      "department": { "id": "...", "name": "..." },
+      "position": { "id": "...", "title": "..." },
+      "defaultShift": "..."
     }
   }
 ]
@@ -147,10 +169,15 @@ sequenceDiagram
 
 ---
 
-### 3.4. Đọc 9 Chính sách & Quy chế Công ty (AI ➔ API)
-* **Endpoint:** `GET /api/v1/policies`
-* **Xác thực:** Header `Authorization: Bearer <AI_SERVICE_TOKEN>`
-* **Mô tả:** Trả về toàn bộ nội dung 9 điều khoản quy chế được Admin cấu hình (Nghỉ phép năm, Nghỉ ốm đau, Làm thêm giờ OT, Đổi ca, Quên chấm công...). AI dùng làm Grounding/Context để kiểm tra tính hợp lệ của đơn.
+### 3.5. Các endpoint đọc khác AI dùng
+| Endpoint | Dùng để |
+|---|---|
+| `GET /api/v1/requests/:id`, `GET /api/v1/requests` | Đọc đơn cần chấm và lịch sử đơn của nhân viên |
+| `GET /api/v1/employees/:id` | Thông tin nhân viên (phòng ban, ngày vào làm, thử việc) |
+| `GET /api/v1/leave/balance` | Quỹ phép |
+| `GET /api/v1/shifts/templates` | Mẫu ca làm việc |
+| `GET /api/v1/policy` (alias `/policies`) | Quy chế công ty, đưa vào prompt làm căn cứ |
+| `GET /api/v1/agent/autonomy-config` | Mức tự chủ của từng loại đơn |
 
 ---
 
@@ -162,20 +189,27 @@ docker compose up -d postgres redis
 ```
 *(Postgres chạy tại port 5432, Redis tại port 6379).*
 
-### Bước 2: Chạy Backend API
+### Bước 2: Chuẩn bị và chạy Backend API
 ```bash
+cp apps/api/.env.example apps/api/.env   # thêm AI_API_BASE_URL=http://localhost:8000
+npm install
+npm run prisma:generate   # npm bản mới chặn install script của Prisma, phải chạy tay
+npm run db:push           # tạo bảng trong Postgres
+npm run seed:api          # tạo tài khoản mẫu
 npm run dev:api
 ```
 *(API khởi động tại: `http://localhost:3000`).*
 
 ### Bước 3: Chạy AI Service
-Tại thư mục gốc hoặc trong thư mục `apps/ai`:
+Không có script `npm run dev:ai`. Chạy trong thư mục `apps/ai` (Python 3.12+):
 ```bash
-# Đảm bảo file apps/ai/.env đã có GEMINI_API_KEY nếu muốn dùng LLM thật,
-# hoặc để LLM_PROVIDER=fake để chạy kiểm thử logic không tốn token LLM
-npm run dev:ai
+cd apps/ai
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # Linux/macOS: .venv/bin/pip
+cp .env.example .env                            # điền OPENAI_API_KEY; hoặc LLM_PROVIDER=fake để chạy không tốn token
+.venv/Scripts/python -m uvicorn app.main:app --port 8000
 ```
-*(AI Service lắng nghe tại: `http://localhost:8000`).*
+*(AI Service lắng nghe tại: `http://localhost:8000`, kiểm tra bằng `GET /health`).*
 
 ### Bước 4: Chạy Giao diện Web
 ```bash
@@ -183,17 +217,19 @@ npm run dev:web
 ```
 *(Web mở tại: `http://localhost:5173`).*
 
+**Chạy toàn bộ bằng Docker:** `cp .env.example .env`, điền `OPENAI_API_KEY`, rồi `docker compose up`. Container API không tự tạo bảng: lần đầu chạy `npm run db:push` và `npm run seed:api` từ máy host như Bước 2.
+
 ---
 
 ## 5. TÀI KHOẢN MẪU KIỂM THỬ (TEST ACCOUNTS)
 
-Hệ thống đã có sẵn các tài khoản mẫu chuẩn nghiệp vụ:
+Tạo bởi `npm run seed:api` (`apps/api/prisma/seed.ts`):
 
 | Vai trò | Email đăng nhập | Mô tả & Thẩm quyền |
 |---|---|---|
-| **ADMIN** | `admin@company.com` | Quản trị toàn hệ thống, cấu hình quy chế, quản lý phân quyền, cấu hình tự trị AI. |
+| **ADMIN** | `admin@gmail.com` | Quản trị toàn hệ thống, cấu hình quy chế, quản lý phân quyền, cấu hình tự trị AI. |
 | **HR** | `huyhoang@gmail.com` | Phòng nhân sự, tạo nhân viên mới, xem toàn bộ đơn từ và nhật ký kiểm toán. |
-| **MANAGER** | `manager@company.com` | Quản lý phê duyệt đơn từ của cấp dưới trực tiếp. |
+| **MANAGER** | `tiendung@gmail.com` | Quản lý phê duyệt đơn từ của cấp dưới trực tiếp. |
 | **EMPLOYEE** | `minhphong@gmail.com` | Nhân viên nộp đơn xin nghỉ, quẹt thẻ chấm công, đổi ca, làm thêm giờ OT. |
 
 ---
