@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import Header
 
+from .agents.chat_agent import ChatDeps
 from .agents.supervisor import EvaluationDeps
 from .config import get_settings
 from .llm import LLMClient, get_llm_or_unavailable
@@ -24,3 +25,13 @@ async def get_evaluation_deps(
     async with ApiClient(settings.api_base_url, settings.ai_service_token, correlation_id=x_correlation_id) as api:
         today = datetime.now(ZoneInfo(settings.company_timezone)).date()
         yield EvaluationDeps(api=api, llm=llm_client(), settings=settings, today=today)
+
+
+async def get_chat_deps(
+    x_correlation_id: str | None = Header(default=None),
+) -> AsyncIterator[ChatDeps]:
+    """One ApiClient per /api/chat turn."""
+    settings = get_settings()
+    async with ApiClient(settings.api_base_url, settings.ai_service_token, correlation_id=x_correlation_id) as api:
+        today = datetime.now(ZoneInfo(settings.company_timezone)).date()
+        yield ChatDeps(api=api, llm=llm_client(), settings=settings, today=today)

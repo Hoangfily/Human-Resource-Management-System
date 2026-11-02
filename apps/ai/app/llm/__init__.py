@@ -1,5 +1,7 @@
 import logging
 
+from pydantic import BaseModel
+
 from ..config import Settings
 from ..schemas.decision import LLMAssessment
 from .base import LLMClient, LLMError
@@ -56,6 +58,9 @@ class UnavailableLLM:
         self.model = self.last_model = "unavailable"
 
     async def assess(self, system: str, user: str) -> LLMAssessment:
+        raise LLMError(f"LLM is not configured: {self.cause}")
+
+    async def complete(self, system: str, user: str, schema: type[BaseModel]) -> BaseModel:
         raise LLMError(f"LLM is not configured: {self.cause}")
 
 

@@ -3,8 +3,8 @@ from typing import Any
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
-from ..schemas.decision import LLMAssessment
 from .base import FallbackLLM, LLMError
 
 
@@ -31,11 +31,11 @@ class GeminiClient(FallbackLLM):
             http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=2)),
         )
 
-    async def _call(self, model: str, system: str, user: str) -> tuple[Any, str | None]:
+    async def _call(self, model: str, system: str, user: str, schema: type[BaseModel]) -> tuple[Any, str | None]:
         config = types.GenerateContentConfig(
             system_instruction=system,
             response_mime_type="application/json",
-            response_schema=LLMAssessment,
+            response_schema=schema,
             temperature=self.temperature,
         )
         response = await self._client.aio.models.generate_content(model=model, contents=user, config=config)

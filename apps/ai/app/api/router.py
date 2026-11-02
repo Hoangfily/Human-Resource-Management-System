@@ -3,9 +3,11 @@ import hmac
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 
+from ..agents.chat_agent import ChatDeps, chat_turn
 from ..agents.supervisor import EvaluationDeps, evaluate_request
 from ..config import Settings, get_settings
-from ..deps import get_evaluation_deps
+from ..deps import get_chat_deps, get_evaluation_deps
+from ..schemas.chat import ChatRequest, ChatResponse
 from ..schemas.decision import EvaluateRequest, EvaluateResponse
 from ..tools.base import ApiError
 
@@ -44,3 +46,14 @@ async def evaluate(
             status_code=status,
             content={"code": exc.code, "message": exc.message, "requestId": deps.api.correlation_id},
         )
+
+
+@router.post(
+    "/api/chat",
+    response_model=ChatResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_service_token)],
+)
+async def chat(body: ChatRequest, deps: ChatDeps = Depends(get_chat_deps)) -> ChatResponse:
+    """Called by the API for each chat message (`/agent/chat`), on behalf of `employeeId`."""
+    return await chat_turn(body, deps)

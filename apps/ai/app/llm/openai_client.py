@@ -3,8 +3,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from openai import AsyncOpenAI, BadRequestError
+from pydantic import BaseModel
 
-from ..schemas.decision import LLMAssessment
 from .base import FallbackLLM, LLMError
 
 # Reasoning models reject `temperature`; they take a reasoning effort instead.
@@ -68,9 +68,9 @@ class OpenAIClient(FallbackLLM):
         # One internal retry per model; our own timeout caps each model's total time.
         self._client = client or AsyncOpenAI(api_key=api_key, max_retries=1)
 
-    async def _call(self, model: str, system: str, user: str) -> tuple[Any, str | None]:
+    async def _call(self, model: str, system: str, user: str, schema: type[BaseModel]) -> tuple[Any, str | None]:
         # store=False: OpenAI must not keep HR prompts (employee data) after answering.
-        request = {"model": model, "instructions": system, "input": user, "text_format": LLMAssessment, "store": False}
+        request = {"model": model, "instructions": system, "input": user, "text_format": schema, "store": False}
         options = self._accepted[model] if model in self._accepted else tuning_options(model, self.temperature)
         while True:
             try:
