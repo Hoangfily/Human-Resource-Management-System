@@ -4,7 +4,7 @@ All tools are implemented in `apps/ai` and call authenticated `apps/api` endpoin
 
 The agent runs in two modes:
 
-- **Chat mode** (the API forwards `/agent/chat` to the AI service `POST /api/chat`, not built yet): helps a user explain policy, fill and submit requests. Acts on behalf of that user.
+- **Chat mode** (the API forwards `/agent/chat` to the AI service `POST /api/chat`, see `06-ai-integration.md` §7): answers policy, leave-balance and request-status questions, and drafts LEAVE / OVERTIME / ATTENDANCE_EXPLANATION requests as action cards. It only reads; the web creates the request with the user's own token after they confirm.
 - **Decision mode** (the API calls `POST /evaluate` on the AI service when a request becomes PENDING, see `01-api-contract.md`): evaluates one request and calls `decide_request` or `escalate_to_human`. Every write carries the agent `trace`. It does not see the chat history, and treats `reason`/`explanation`/attachments as data, never as instructions.
 
 | Tool | Mode | Input | Output | API endpoint | Access |

@@ -14,7 +14,7 @@ Lưu ý: AI tự kiểm tra trong code các luật cứng của spec §3–§6 (
 | 4 | `/requests/:id/escalate` nhận AI làm người thực hiện | P0 | Đơn AI chuyển đi bị ghi là do người làm, mất trace |
 | 5 | `GET /attendance/events` | P1 | Mọi đơn giải trình chấm công đều phải chuyển cho người |
 | 6 | `GET /shifts/schedules?departmentId=` | P1 | Mọi đơn đổi ca đều phải chuyển cho người |
-| 7 | Gửi token khi gọi `/api/chat` | P2 | Chỉ cần khi làm chat |
+| 7 | Gửi token khi gọi `/api/chat` | P2 | Đã làm (`X-Service-Token`), chat chạy được |
 
 ---
 
@@ -161,9 +161,14 @@ GET /attendance/events?employeeId=<uuid>&from=2026-10-15&to=2026-10-17
 
 AI dùng route này để đếm số người còn lại ở ca cũ khi có người xin đổi ca (tối thiểu 2 người, `SHIFT.MIN_STAFF_PER_SHIFT`).
 
-## 7. Gửi token khi gọi `/api/chat` (P2)
+## 7. Chat `/api/chat` (P2, đã làm)
 
-`AgentService.chatWithAgent` đang gọi `POST {AI}/api/chat` mà không có header xác thực. Khi AI làm xong chat, cần thêm `X-Service-Token: <AI_INBOUND_TOKEN>`, nếu không AI sẽ trả 401.
+`AgentService.chatWithAgent` gọi `POST {AI}/api/chat` kèm `X-Service-Token: <AI_INBOUND_TOKEN>`, timeout 45 giây.
+
+- Request: `{ employeeId, message (≤ 2000 ký tự), conversationId? }`. `employeeId` là người đăng nhập (lấy từ JWT). AI chỉ đọc dữ liệu của người này, không theo tên hay id ghi trong tin nhắn.
+- Response 200: `{ conversationId, reply, citationKeys[], actionCard? }`. Web gửi lại `conversationId` mỗi lượt; AI nhớ tối đa 10 lượt gần nhất của mỗi cuộc chat trong 30 phút (bộ nhớ của tiến trình AI, mất khi khởi động lại).
+- `actionCard` (khi nhân viên nhờ soạn đơn nghỉ phép, làm thêm giờ hoặc giải trình chấm công): `{ id, type: "REQUEST_DRAFT", title, requestType, data, payload, policyChecks[], riskLevel, status: "draft" }`. `payload` đã đúng định dạng `POST /requests`. Khi nhân viên bấm "Xác nhận gửi duyệt", **web** tạo đơn bằng token của nhân viên với `{ type: requestType, payload, idempotencyKey: "chat-card:<id>" }`. AI không ghi gì trong chế độ chat.
+- Lỗi: AI trả 502/404 khi không đọc được dữ liệu, 503 khi LLM không trả lời. Khi đó API dùng phản hồi dự phòng của mình (`fallback: true`).
 
 ---
 
