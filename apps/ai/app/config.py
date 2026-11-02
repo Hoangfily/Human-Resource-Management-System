@@ -10,7 +10,26 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 
 def _float(name: str, default: float) -> float:
-    return float(os.getenv(name, str(default)))
+    return float(os.getenv(name) or default)  # Empty counts as unset (docker-compose passes ${X:-} as "")
+
+
+def _provider() -> str:
+    """LLM_PROVIDER, else the provider of LLM_MODEL, else the one whose key is set (a Gemini-only .env
+    keeps working), else openai."""
+    if provider := os.getenv("LLM_PROVIDER", "").strip().lower():
+        return provider
+    if os.getenv("LLM_MODEL", "").strip().startswith("gemini"):
+        return "gemini"
+    return "gemini" if os.getenv("GEMINI_API_KEY") and not os.getenv("OPENAI_API_KEY") else "openai"
+
+
+# Default (model, fallback models) per LLM_PROVIDER; LLM_MODEL / LLM_FALLBACK_MODELS override them.
+DEFAULT_MODELS = {
+    # Nano models (gpt-5-nano, gpt-5.4-nano) are cheaper but never confident enough to auto-decide
+    # (eval: 0% automation), so a nano fallback would only add cost and delay before escalating.
+    "openai": ("gpt-5.6-luna", "gpt-6-luna"),
+    "gemini": ("gemini-3.8-flash", "gemini-3.5-flash"),
+}
 
 
 @dataclass(frozen=True)
@@ -18,10 +37,11 @@ class Settings:
     api_base_url: str
     ai_service_token: str  # AI -> API
     ai_inbound_token: str  # API -> AI (/evaluate)
-    llm_provider: str  # "gemini" | "fake"
+    llm_provider: str  # "openai" | "gemini" | "fake"
     llm_model: str
     llm_fallback_models: tuple[str, ...]
     llm_timeout_s: float  # Per model attempt
+    openai_api_key: str
     gemini_api_key: str
     ai_min_confidence: float
     ai_max_auto_leave_days: float
@@ -48,16 +68,19 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    provider = _provider()
+    model, fallbacks = DEFAULT_MODELS.get(provider, ("", ""))
     return Settings(
         api_base_url=os.getenv("API_BASE_URL", "http://localhost:3000"),
         ai_service_token=os.getenv("AI_SERVICE_TOKEN", ""),
         ai_inbound_token=os.getenv("AI_INBOUND_TOKEN", ""),
-        llm_provider=os.getenv("LLM_PROVIDER", "gemini"),
-        llm_model=os.getenv("LLM_MODEL", "gemini-3.8-flash"),
+        llm_provider=provider,
+        llm_model=os.getenv("LLM_MODEL", "").strip() or model,
         llm_fallback_models=tuple(
-            m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "gemini-3.5-flash").split(",") if m.strip()
+            m.strip() for m in (os.getenv("LLM_FALLBACK_MODELS") or fallbacks).split(",") if m.strip()
         ),
         llm_timeout_s=_float("LLM_TIMEOUT_S", 20),
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         ai_min_confidence=_float("AI_MIN_CONFIDENCE", 0.85),
         ai_max_auto_leave_days=_float("AI_MAX_AUTO_LEAVE_DAYS", 3),

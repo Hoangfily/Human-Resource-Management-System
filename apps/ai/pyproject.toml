@@ -11,6 +11,7 @@ dependencies = [
   "python-dotenv>=1.0,<2.0",
   "tzdata>=2024.1",  # zoneinfo data on Windows
   "google-genai>=1.0,<2.0",
+  "openai>=1.99,<3.0",
 ]
 
 [tool.pytest.ini_options]

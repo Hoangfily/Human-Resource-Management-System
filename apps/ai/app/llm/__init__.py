@@ -7,11 +7,31 @@ from .base import LLMClient, LLMError
 logger = logging.getLogger(__name__)
 
 
+def _check_models(settings: Settings) -> None:
+    """A model left over from the other provider would fail every call: refuse it at startup instead."""
+    models = [settings.llm_model, *settings.llm_fallback_models]
+    other = ("gpt-", "o1", "o3", "o4", "ft:") if settings.llm_provider == "gemini" else ("gemini",)
+    wrong = [m for m in models if m.startswith(other)]
+    if wrong:
+        raise ValueError(f"LLM_MODEL/LLM_FALLBACK_MODELS {wrong} are not {settings.llm_provider} models")
+
+
 def get_llm(settings: Settings) -> LLMClient:
+    if settings.llm_provider in ("openai", "gemini"):
+        _check_models(settings)
     if settings.llm_provider == "fake":
         from .fake import FakeLLM
 
         return FakeLLM()
+    if settings.llm_provider == "openai":
+        from .openai_client import OpenAIClient
+
+        return OpenAIClient(
+            settings.openai_api_key,
+            settings.llm_model,
+            fallback_models=settings.llm_fallback_models,
+            timeout_s=settings.llm_timeout_s,
+        )
     if settings.llm_provider == "gemini":
         from .gemini_client import GeminiClient
 
