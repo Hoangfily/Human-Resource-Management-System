@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
@@ -48,6 +49,8 @@ export class AuthService {
       this.jwtService.signAsync(payload, {
         secret: refreshTokenSecret,
         expiresIn: '7d',
+        // jti ngẫu nhiên: 2 lần đăng nhập trong cùng 1 giây không sinh ra token trùng (token là unique trong DB)
+        jwtid: randomUUID(),
       }),
     ]);
 
@@ -132,6 +135,7 @@ export class AuthService {
       this.jwtService.signAsync(newPayload, {
         secret: refreshTokenSecret,
         expiresIn: '7d',
+        jwtid: randomUUID(),
       }),
     ]);
 
