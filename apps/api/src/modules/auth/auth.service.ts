@@ -1,7 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -29,6 +31,78 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản đã nghỉ việc / bị vô hiệu hóa');
     }
 
+    return this.createSessionAndResponse(employee);
+  }
+
+  async register(registerDto: RegisterDto) {
+    const email = registerDto.email.trim().toLowerCase();
+
+    const existing = await this.prisma.employee.findUnique({
+      where: { email },
+    });
+
+    if (existing) {
+      throw new ConflictException('Địa chỉ email này đã được sử dụng');
+    }
+
+    // Gán phòng ban mặc định nếu không truyền
+    let departmentId = registerDto.departmentId;
+    if (!departmentId) {
+      const defaultDept = await this.prisma.department.findFirst();
+      departmentId = defaultDept?.id;
+    }
+
+    // Gán ca làm việc chuẩn
+    const defaultShift = await this.prisma.shiftTemplate.findFirst();
+
+    // Gán chức danh mặc định
+    const defaultPos = await this.prisma.position.findFirst({
+      where: { title: { contains: 'Nhân viên' } },
+    });
+    const positionId = defaultPos?.id;
+
+    // Vai trò mặc định là EMPLOYEE
+    const role: Role = (registerDto.role as Role) || Role.EMPLOYEE;
+
+    const employee = await this.prisma.employee.create({
+      data: {
+        email,
+        fullName: registerDto.fullName.trim(),
+        phone: registerDto.phone,
+        role,
+        status: 'ACTIVE',
+        departmentId,
+        positionId,
+        defaultShiftId: defaultShift?.id,
+        joinDate: new Date(),
+      },
+      include: {
+        department: true,
+        position: true,
+      },
+    });
+
+    // Khởi tạo quỹ phép năm mặc định (12 ngày) cho nhân viên mới
+    const annualLeaveType = await this.prisma.leaveType.findFirst({
+      where: { code: 'ANNUAL' },
+    });
+    if (annualLeaveType) {
+      await this.prisma.leaveBalance.create({
+        data: {
+          employeeId: employee.id,
+          leaveTypeId: annualLeaveType.id,
+          totalDays: 12,
+          usedDays: 0,
+          pendingDays: 0,
+          year: new Date().getFullYear(),
+        },
+      });
+    }
+
+    return this.createSessionAndResponse(employee);
+  }
+
+  private async createSessionAndResponse(employee: any) {
     const payload = {
       sub: employee.id,
       email: employee.email,

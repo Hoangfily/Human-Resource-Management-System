@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { UserRole } from '@hr-agent/shared';
-import { User, LoginCredentials } from '../../types';
+import { User, LoginCredentials, RegisterData } from '../../types';
 import { authStorage } from '../../lib/auth-storage';
 import { MOCK_USERS, isMockEnabled } from '../../lib/mock-data';
 import apiClient from '../../lib/api-client';
@@ -10,6 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<boolean>;
+  register: (data: RegisterData) => Promise<{ success: boolean; message?: string }>;
   loginAsDemoRole: (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => Promise<boolean>;
   logout: () => void;
 }
@@ -82,6 +83,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const register = async (data: RegisterData): Promise<{ success: boolean; message?: string }> => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.post<{ user: User; tokens: { accessToken: string } }>(
+        '/auth/register',
+        data
+      );
+      const authData = response as unknown as { user: User; tokens: { accessToken: string } };
+      if (authData?.tokens?.accessToken) {
+        authStorage.setAccessToken(authData.tokens.accessToken);
+        authStorage.setUser(authData.user);
+        setUser(authData.user);
+        setIsLoading(false);
+        return { success: true };
+      }
+      setIsLoading(false);
+      return { success: false, message: 'Đăng ký không thành công' };
+    } catch (err: any) {
+      setIsLoading(false);
+      const errMsg = err?.response?.data?.message || err?.message || 'Đăng ký thất bại';
+      return { success: false, message: Array.isArray(errMsg) ? errMsg.join(', ') : errMsg };
+    }
+  };
+
   const loginAsDemoRole = async (
     roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin',
   ): Promise<boolean> => {
@@ -111,6 +136,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isAuthenticated: !!user,
         isLoading,
         login,
+        register,
         loginAsDemoRole,
         logout,
       }}
