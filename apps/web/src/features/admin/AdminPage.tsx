@@ -575,9 +575,10 @@ export const AdminPage: React.FC = () => {
             {
               key: 'employees',
               label: (
-                <Space>
+                <Space size={6}>
                   <UserOutlined />
-                  <span>Danh sách Nhân sự ({employees.length})</span>
+                  <span>Danh sách Nhân sự</span>
+                  <Badge count={employees.length} overflowCount={999} style={{ backgroundColor: '#0f766e' }} />
                 </Space>
               ),
               children: (
@@ -627,10 +628,10 @@ export const AdminPage: React.FC = () => {
             {
               key: 'policies',
               label: (
-                <Space>
+                <Space size={6}>
                   <BookOutlined />
-                  <span>9 Chính sách & Quy chế Công ty</span>
-                  <Badge count={policies.length} style={{ backgroundColor: '#059669' }} />
+                  <span>Chính sách & Quy chế</span>
+                  <Badge count={policies.length} overflowCount={999} style={{ backgroundColor: '#059669' }} />
                 </Space>
               ),
               children: (
@@ -664,10 +665,10 @@ export const AdminPage: React.FC = () => {
             {
               key: 'audit-logs',
               label: (
-                <Space>
+                <Space size={6}>
                   <AuditOutlined />
-                  <span>Nhật ký Kiểm toán ({auditLogs.length})</span>
-                  <Badge count={auditLogs.length} style={{ backgroundColor: '#8b5cf6' }} />
+                  <span>Nhật ký Kiểm toán</span>
+                  <Badge count={auditLogs.length} overflowCount={999} style={{ backgroundColor: '#8b5cf6' }} />
                 </Space>
               ),
               children: (
