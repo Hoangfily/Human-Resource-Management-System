@@ -66,6 +66,36 @@ async function main() {
     },
   });
 
+  const morningShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Sáng (08:30 - 17:30)' },
+    update: { startTime: '08:30', endTime: '17:30' },
+    create: {
+      name: 'Ca Sáng (08:30 - 17:30)',
+      startTime: '08:30',
+      endTime: '17:30',
+    },
+  });
+
+  const afternoonShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Chiều (13:00 - 21:00)' },
+    update: { startTime: '13:00', endTime: '21:00' },
+    create: {
+      name: 'Ca Chiều (13:00 - 21:00)',
+      startTime: '13:00',
+      endTime: '21:00',
+    },
+  });
+
+  const nightShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Đêm (21:00 - 05:00)' },
+    update: { startTime: '21:00', endTime: '05:00' },
+    create: {
+      name: 'Ca Đêm (21:00 - 05:00)',
+      startTime: '21:00',
+      endTime: '05:00',
+    },
+  });
+
   // 4. Tạo các Nhân viên nòng cốt
   // 4.1 Quản trị viên cao cấp - Admin
   const admin = await prisma.employee.upsert({
@@ -138,6 +168,55 @@ async function main() {
       departmentId: hrDept.id,
       positionId: hrLeadPos.id,
       defaultShiftId: standardShift.id,
+    },
+  });
+
+  // 4.5 Các nhân viên kỹ thuật đồng nghiệp (Phòng Công nghệ Thông tin)
+  const colleagueLan = await prisma.employee.upsert({
+    where: { email: 'dothilan@gmail.com' },
+    update: { fullName: 'Đỗ Thị Lan', managerId: manager.id },
+    create: {
+      email: 'dothilan@gmail.com',
+      fullName: 'Đỗ Thị Lan',
+      phone: '0981112233',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: morningShift.id,
+    },
+  });
+
+  const colleagueNam = await prisma.employee.upsert({
+    where: { email: 'tranvannam@gmail.com' },
+    update: { fullName: 'Trần Văn Nam', managerId: manager.id },
+    create: {
+      email: 'tranvannam@gmail.com',
+      fullName: 'Trần Văn Nam',
+      phone: '0982223344',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: afternoonShift.id,
+    },
+  });
+
+  const colleagueTuan = await prisma.employee.upsert({
+    where: { email: 'hoangminhtuan@gmail.com' },
+    update: { fullName: 'Hoàng Minh Tuấn', managerId: manager.id },
+    create: {
+      email: 'hoangminhtuan@gmail.com',
+      fullName: 'Hoàng Minh Tuấn',
+      phone: '0983334455',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: morningShift.id,
     },
   });
 
@@ -349,6 +428,105 @@ async function main() {
       update: {},
       create: pol,
     });
+  }
+
+  // 9. Nạp Lịch phân ca làm việc (Schedules) cho toàn bộ tháng 11/2026 và các ngày quanh hiện tại
+  console.log('-> Đang tạo lịch phân ca làm việc (Schedules)...');
+  const seedSchedule = async (empId: string, dateStr: string, startTime: string, endTime: string) => {
+    const targetDate = new Date(`${dateStr}T00:00:00.000Z`);
+    const startDt = new Date(`${dateStr}T${startTime}:00+07:00`);
+    const isOvernight = endTime <= startTime;
+    let endDt: Date;
+    if (isOvernight) {
+      const nextDay = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      endDt = new Date(`${nextDay}T${endTime}:00+07:00`);
+    } else {
+      endDt = new Date(`${dateStr}T${endTime}:00+07:00`);
+    }
+
+    await prisma.schedule.upsert({
+      where: {
+        employeeId_date: {
+          employeeId: empId,
+          date: targetDate,
+        },
+      },
+      update: {
+        shiftStart: startDt,
+        shiftEnd: endDt,
+      },
+      create: {
+        employeeId: empId,
+        date: targetDate,
+        shiftStart: startDt,
+        shiftEnd: endDt,
+      },
+    });
+  };
+
+  // 9.1 Tạo lịch cho cả tháng 11/2026 (ngày 1 -> 30)
+  for (let d = 1; d <= 30; d++) {
+    const dayStr = d < 10 ? `0${d}` : `${d}`;
+    const dateStr = `2026-11-${dayStr}`;
+    const dow = new Date(`${dateStr}T00:00:00.000Z`).getUTCDay(); // 0 = CN, 1 = T2, ..., 6 = T7
+
+    if (dow === 0) {
+      // Chủ nhật: nghỉ ca
+      continue;
+    }
+
+    if (dow === 6) {
+      // Thứ Bảy: Luân phiên trực sáng cho 1 nhân viên
+      if (d % 2 === 0) {
+        await seedSchedule(colleagueTuan.id, dateStr, '08:30', '12:30');
+      } else {
+        await seedSchedule(colleagueLan.id, dateStr, '08:30', '12:30');
+      }
+      continue;
+    }
+
+    // Thứ Hai -> Thứ Sáu:
+    // Quản lý Nguyễn Tiến Dũng: Ca sáng
+    await seedSchedule(manager.id, dateStr, '08:30', '17:30');
+
+    // Nhân viên chính Phạm Minh Phong: Ca sáng (riêng Thứ Năm làm Ca chiều)
+    if (dow === 4) {
+      await seedSchedule(employee.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(employee.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Đỗ Thị Lan: T2-T4 ca sáng, T5-T6 ca chiều
+    if (dow >= 4) {
+      await seedSchedule(colleagueLan.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(colleagueLan.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Trần Văn Nam: T2-T3 ca chiều, T4-T6 ca sáng
+    if (dow <= 2) {
+      await seedSchedule(colleagueNam.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(colleagueNam.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Hoàng Minh Tuấn: Ca sáng đều đặn
+    await seedSchedule(colleagueTuan.id, dateStr, '08:30', '17:30');
+  }
+
+  // 9.2 Tạo thêm lịch động cho tuần hiện tại (dựa trên new Date) nếu khác tháng 11/2026
+  const now = new Date();
+  for (let offset = -7; offset <= 14; offset++) {
+    const cur = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
+    const dateStr = cur.toISOString().slice(0, 10);
+    const dow = cur.getUTCDay();
+    if (dow !== 0 && dow !== 6) {
+      await seedSchedule(employee.id, dateStr, '08:30', '17:30');
+      await seedSchedule(manager.id, dateStr, '08:30', '17:30');
+      await seedSchedule(colleagueLan.id, dateStr, '08:30', '17:30');
+      await seedSchedule(colleagueNam.id, dateStr, '13:00', '21:00');
+      await seedSchedule(colleagueTuan.id, dateStr, '08:30', '17:30');
+    }
   }
 
   console.log('--- Hoàn tất nạp dữ liệu mẫu (Seeding Thành Công)! ---');

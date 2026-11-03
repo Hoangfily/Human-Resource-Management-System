@@ -37,20 +37,25 @@ export const ShiftsPage: React.FC = () => {
   const [submittingSwap, setSubmittingSwap] = useState<boolean>(false);
   const [scheduleData, setScheduleData] = useState<any>(null);
   const [colleagues, setColleagues] = useState<any[]>([]);
+  const [shiftTemplates, setShiftTemplates] = useState<any[]>([]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
   const [selectedShiftForSwap, setSelectedShiftForSwap] = useState<any>(null);
   const [swapForm] = Form.useForm();
 
-  // Tải lịch làm việc và danh sách đồng nghiệp từ PostgreSQL
+  // Tải lịch làm việc, danh sách đồng nghiệp và mẫu ca từ PostgreSQL
   const fetchShiftsData = useCallback(async () => {
     setLoading(true);
     try {
-      const [scheduleRes, colleaguesRes] = await Promise.all([
+      const [scheduleRes, colleaguesRes, templatesRes] = await Promise.all([
         apiClient.get('/shifts/my-schedule'),
         apiClient.get<any[]>('/shifts/colleagues'),
+        apiClient.get<any[]>('/shifts/templates').catch(() => []),
       ]);
       setScheduleData(scheduleRes);
       setColleagues((colleaguesRes as unknown as any[]) || []);
+      if (Array.isArray(templatesRes) && templatesRes.length > 0) {
+        setShiftTemplates(templatesRes);
+      }
     } catch {
       // Giữ giao diện nếu lỗi
     } finally {
@@ -61,6 +66,15 @@ export const ShiftsPage: React.FC = () => {
   useEffect(() => {
     fetchShiftsData();
   }, [fetchShiftsData]);
+
+  useEffect(() => {
+    if (isSwapModalOpen && selectedShiftForSwap) {
+      swapForm.setFieldsValue({
+        date: selectedShiftForSwap.date ? dayjs(selectedShiftForSwap.date) : dayjs(),
+        targetShift: shiftTemplates[0]?.id || 'CA_CHIEU',
+      });
+    }
+  }, [isSwapModalOpen, selectedShiftForSwap, shiftTemplates, swapForm]);
 
   // Xử lý nộp đơn hoán đổi ca làm việc thật vào CSDL
   const handleSwapSubmit = async (values: any) => {
@@ -414,10 +428,20 @@ export const ShiftsPage: React.FC = () => {
             rules={[{ required: true, message: 'Vui lòng chọn ca làm muốn đổi sang' }]}
             initialValue="CA_CHIEU"
           >
-            <Select>
-              <Select.Option value="CA_SANG">Ca Sáng (08:30 - 17:30)</Select.Option>
-              <Select.Option value="CA_CHIEU">Ca Chiều (13:00 - 21:00)</Select.Option>
-              <Select.Option value="CA_DEM">Ca Đêm (21:00 - 05:00)</Select.Option>
+            <Select placeholder="Chọn ca làm muốn chuyển sang...">
+              {shiftTemplates.length > 0 ? (
+                shiftTemplates.map((t) => (
+                  <Select.Option key={t.id} value={t.id}>
+                    {t.name} ({t.startTime} - {t.endTime})
+                  </Select.Option>
+                ))
+              ) : (
+                <>
+                  <Select.Option value="CA_SANG">Ca Sáng (08:30 - 17:30)</Select.Option>
+                  <Select.Option value="CA_CHIEU">Ca Chiều (13:00 - 21:00)</Select.Option>
+                  <Select.Option value="CA_DEM">Ca Đêm (21:00 - 05:00)</Select.Option>
+                </>
+              )}
             </Select>
           </Form.Item>
 

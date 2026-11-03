@@ -159,7 +159,17 @@ async function shiftErrors(db: Db, employeeId: string, p: Payload): Promise<stri
   const templateId = p.newShiftTemplateId ?? p.targetShiftId;
   if (!DATE.test(newDate ?? '') || !templateId) return ['Ngày đổi ca (YYYY-MM-DD) và ca mới là bắt buộc'];
 
-  const template = await db.shiftTemplate.findUnique({ where: { id: String(templateId) } });
+  const template = await db.shiftTemplate.findFirst({
+    where: {
+      OR: [
+        { id: String(templateId) },
+        { name: { contains: String(templateId), mode: 'insensitive' as const } },
+        ...(templateId === 'CA_SANG' ? [{ name: { contains: 'Sáng', mode: 'insensitive' as const } }] : []),
+        ...(templateId === 'CA_CHIEU' ? [{ name: { contains: 'Chiều', mode: 'insensitive' as const } }] : []),
+        ...(templateId === 'CA_DEM' ? [{ name: { contains: 'Đêm', mode: 'insensitive' as const } }] : []),
+      ],
+    },
+  });
   if (!template || !TIME.test(template.startTime) || !TIME.test(template.endTime)) return ['Ca làm việc mới không tồn tại'];
 
   const start = atCompanyTime(newDate, template.startTime);

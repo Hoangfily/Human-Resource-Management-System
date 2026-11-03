@@ -115,10 +115,24 @@ export const RequestsPage: React.FC = () => {
       .catch(() => {});
 
     apiClient
-      .get<any[]>('/shifts/my-schedule')
+      .get<any>('/shifts/my-schedule')
       .then((res: any) => {
         if (Array.isArray(res)) {
           setMySchedules(res);
+        } else if (res?.schedules && Array.isArray(res.schedules)) {
+          setMySchedules(res.schedules);
+        } else if (res?.weekShifts && Array.isArray(res.weekShifts)) {
+          setMySchedules(
+            res.weekShifts
+              .filter((s: any) => s.shift !== 'NGHI_CA')
+              .map((s: any) => ({
+                id: s.id || s.key,
+                shiftTemplate: s.shiftName || s.shift,
+                shiftStart: s.time?.split(' - ')[0] || '08:30',
+                shiftEnd: s.time?.split(' - ')[1] || '17:30',
+                date: s.date,
+              })),
+          );
         }
       })
       .catch(() => {});
