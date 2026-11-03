@@ -23,6 +23,8 @@ export const StatusTag: React.FC<StatusTagProps> = ({ status, showDot = true }) 
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
+        whiteSpace: 'nowrap',
+        margin: 0,
       }}
     >
       {showDot && (
@@ -33,10 +35,11 @@ export const StatusTag: React.FC<StatusTagProps> = ({ status, showDot = true }) 
             borderRadius: '50%',
             backgroundColor: meta.tagColor,
             display: 'inline-block',
+            flexShrink: 0,
           }}
         />
       )}
-      {meta.label}
+      <span>{meta.label}</span>
     </Tag>
   );
 };

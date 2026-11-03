@@ -416,12 +416,20 @@ export const RequestsPage: React.FC = () => {
     return true;
   });
 
+  const formatShiftName = (shiftVal: string) => {
+    if (!shiftVal) return '';
+    if (shiftVal === 'CA_SANG') return 'Ca Sáng (08:30 - 17:30)';
+    if (shiftVal === 'CA_CHIEU') return 'Ca Chiều (13:00 - 21:00)';
+    if (shiftVal === 'CA_DEM') return 'Ca Đêm (21:00 - 05:00)';
+    return shiftVal;
+  };
+
   const columns = [
     {
       title: 'Mã đơn',
       dataIndex: 'id',
       key: 'id',
-      width: 125,
+      width: 120,
       render: (id: string) => (
         <span
           style={{
@@ -445,13 +453,13 @@ export const RequestsPage: React.FC = () => {
       title: 'Nhân viên',
       dataIndex: 'employeeName',
       key: 'employeeName',
-      width: 210,
+      width: 190,
       render: (name: string, record: RequestItem) => (
-        <div style={{ whiteSpace: 'nowrap' }}>
-          <div style={{ fontWeight: 600, color: '#111827', fontSize: 13.5 }}>
+        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontWeight: 600, color: '#111827', fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {name || 'Nhân viên'}
           </div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {record.departmentName || 'Phòng ban'}
           </div>
         </div>
@@ -461,7 +469,7 @@ export const RequestsPage: React.FC = () => {
       title: 'Loại yêu cầu',
       dataIndex: 'type',
       key: 'type',
-      width: 195,
+      width: 180,
       render: (type: RequestType) => (
         <div style={{ whiteSpace: 'nowrap' }}>
           <RequestTypeTag type={type} />
@@ -471,12 +479,12 @@ export const RequestsPage: React.FC = () => {
     {
       title: 'Chi tiết / Lý do',
       key: 'reason',
-      width: 280,
+      width: 290,
       render: (_: unknown, record: RequestItem) => {
         const payload = record.payload as Record<string, any>;
         const days = (record as any).computed?.daysRequested || payload?.daysCount;
         return (
-          <div style={{ maxWidth: 280 }}>
+          <div style={{ maxWidth: 290 }}>
             <div
               style={{
                 color: '#374151',
@@ -491,17 +499,47 @@ export const RequestsPage: React.FC = () => {
               {payload?.reason || '—'}
             </div>
             {days && record.type === RequestType.Leave && (
-              <div style={{ fontSize: 11.5, color: '#059669', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: '#059669',
+                  fontWeight: 600,
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 Thời lượng: {days} ngày làm việc
               </div>
             )}
             {record.type === RequestType.Overtime && payload?.startTime && payload?.endTime && (
-              <div style={{ fontSize: 11.5, color: '#d97706', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: '#d97706',
+                  fontWeight: 600,
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 Khung giờ OT: {payload.startTime} - {payload.endTime} {payload.estimatedHours ? `(${payload.estimatedHours}h)` : ''}
               </div>
             )}
             {record.type === RequestType.AttendanceExplanation && payload?.issue && (
-              <div style={{ fontSize: 11.5, color: '#7c3aed', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: '#7c3aed',
+                  fontWeight: 600,
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 {payload.issue === 'MISSING_CLOCK_IN' ? 'Quên chấm công vào' :
                  payload.issue === 'MISSING_CLOCK_OUT' ? 'Quên chấm công ra' :
                  payload.issue === 'LATE' ? 'Đi làm muộn' :
@@ -510,8 +548,19 @@ export const RequestsPage: React.FC = () => {
               </div>
             )}
             {record.type === RequestType.ShiftChange && (payload?.newShiftTemplateName || payload?.newShiftTemplateId || payload?.targetShiftId) && (
-              <div style={{ fontSize: 11.5, color: '#2563eb', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' }}>
-                Ca mới: {payload.newShiftTemplateName || payload.newShiftTemplateId || payload.targetShiftId}
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: '#2563eb',
+                  fontWeight: 600,
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                title={`Ca mới: ${payload.newShiftTemplateName || formatShiftName(payload.newShiftTemplateId || payload.targetShiftId)}${payload.swapWithEmployeeName ? ` (Đổi với: ${payload.swapWithEmployeeName})` : ''}`}
+              >
+                Ca mới: {payload.newShiftTemplateName || formatShiftName(payload.newShiftTemplateId || payload.targetShiftId)}
                 {payload.swapWithEmployeeName && ` (Đổi với: ${payload.swapWithEmployeeName})`}
               </div>
             )}
@@ -522,7 +571,7 @@ export const RequestsPage: React.FC = () => {
     {
       title: 'Đánh giá AI',
       key: 'aiRisk',
-      width: 165,
+      width: 170,
       render: (_: unknown, record: RequestItem) => (
         <div style={{ whiteSpace: 'nowrap' }}>
           <RiskBadge
@@ -537,7 +586,7 @@ export const RequestsPage: React.FC = () => {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      width: 160,
+      width: 220,
       render: (status: RequestStatus) => (
         <div style={{ whiteSpace: 'nowrap' }}>
           <StatusTag status={status} />
@@ -548,9 +597,9 @@ export const RequestsPage: React.FC = () => {
       title: 'Người duyệt',
       dataIndex: 'approverName',
       key: 'approverName',
-      width: 150,
+      width: 170,
       render: (name?: string) => (
-        <div style={{ whiteSpace: 'nowrap', fontSize: 13, color: name ? '#111827' : '#9ca3af' }}>
+        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, color: name ? '#111827' : '#9ca3af' }}>
           {name || 'Chờ chỉ định'}
         </div>
       ),
@@ -559,7 +608,7 @@ export const RequestsPage: React.FC = () => {
       title: 'Ngày gửi',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 120,
+      width: 125,
       render: (d: string) => (
         <div style={{ whiteSpace: 'nowrap', fontSize: 12.5, color: '#4b5563' }}>
           {new Date(d).toLocaleDateString('vi-VN')}
@@ -569,7 +618,7 @@ export const RequestsPage: React.FC = () => {
     {
       title: 'Thao tác',
       key: 'action',
-      width: 110,
+      width: 100,
       fixed: 'right' as const,
       render: (_: unknown, record: RequestItem) => (
         <Space size={6} onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
@@ -760,7 +809,7 @@ export const RequestsPage: React.FC = () => {
                 showSizeChanger: false,
                 style: { marginTop: 16, marginBottom: 0 },
               }}
-              scroll={{ x: 1380 }}
+              scroll={{ x: 1560 }}
               onRow={(record) => ({
                 onClick: () => setSelectedDetailRequest(record),
                 style: { cursor: 'pointer' },
