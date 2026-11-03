@@ -7,13 +7,11 @@ import {
   Typography,
   Avatar,
   Tag,
-  Alert,
-  Divider,
-  App as AntdApp,
   Row,
   Col,
   Tooltip,
   Spin,
+  App as AntdApp,
 } from 'antd';
 import {
   RobotOutlined,
@@ -28,16 +26,20 @@ import {
   SafetyCertificateOutlined,
   ExclamationCircleOutlined,
   CheckOutlined,
-  ArrowRightOutlined,
+  ReloadOutlined,
+  CopyOutlined,
+  SwapOutlined,
+  FileTextOutlined,
+  LockOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import { RequestType } from '@hr-agent/shared';
 import { useAuth } from '../auth/AuthContext';
 import apiClient from '../../lib/api-client';
-import { POLICY_DISPLAY_MAP, formatPolicyName } from '../../lib/display-mappers';
-import { RiskBadge, RequestTypeTag } from '../../components/common';
+import { formatPolicyName } from '../../lib/display-mappers';
+import { RiskBadge } from '../../components/common';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 export interface ChatActionCard {
   id: string;
@@ -84,15 +86,119 @@ const apiErrorText = (err: any, fallback: string) => {
   return Array.isArray(msg) ? msg.join(', ') : msg || fallback;
 };
 
+// Helper phân giải văn bản Markdown đơn giản (in đậm, in nghiêng, danh sách gạch đầu dòng)
+const parseItalic = (text: string): React.ReactNode => {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*|_)(.*?)\1/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    parts.push(
+      <em key={key++} style={{ fontStyle: 'italic', color: '#334155' }}>
+        {match[2]}
+      </em>,
+    );
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+};
+
+const renderFormattedText = (text: string) => {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {lines.map((line, lineIdx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={lineIdx} style={{ height: 6 }} />;
+        }
+
+        // Kiểm tra dòng có phải là bullet list hay không
+        const isBullet = trimmed.startsWith('•') || trimmed.startsWith('- ') || trimmed.startsWith('* ');
+        const cleanLine = isBullet ? trimmed.replace(/^[•\-\*]\s*/, '') : trimmed;
+
+        // Phân tích bold **text**
+        const parts: React.ReactNode[] = [];
+        let remaining = cleanLine;
+        let partKey = 0;
+
+        while (remaining.length > 0) {
+          const boldMatch = remaining.match(/^(.*?)\*\*(.+?)\*\*(.*)$/);
+          if (boldMatch) {
+            const [, before, boldText, after] = boldMatch;
+            if (before) {
+              parts.push(<span key={partKey++}>{parseItalic(before)}</span>);
+            }
+            parts.push(
+              <strong key={partKey++} style={{ fontWeight: 700, color: '#064e3b' }}>
+                {boldText}
+              </strong>,
+            );
+            remaining = after;
+            continue;
+          }
+
+          parts.push(<span key={partKey++}>{parseItalic(remaining)}</span>);
+          break;
+        }
+
+        if (isBullet) {
+          return (
+            <div
+              key={lineIdx}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                paddingLeft: 4,
+                lineHeight: 1.6,
+              }}
+            >
+              <span
+                style={{
+                  color: '#059669',
+                  fontSize: 14,
+                  lineHeight: '22px',
+                  userSelect: 'none',
+                }}
+              >
+                ●
+              </span>
+              <div style={{ flex: 1 }}>{parts}</div>
+            </div>
+          );
+        }
+
+        return (
+          <div key={lineIdx} style={{ lineHeight: 1.65 }}>
+            {parts}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const AgentChatPage: React.FC = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const { message } = AntdApp.useApp();
 
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [submittingCardId, setSubmittingCardId] = useState<string | null>(null);
-  // Gửi lại mỗi lượt để AI nhớ các câu trước (vd: "đổi sang thứ 5")
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -107,7 +213,7 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
 • *"Tôi muốn xin nghỉ phép 2 ngày tuần tới do việc gia đình"*
 • *"Sáng nay tôi quên quẹt thẻ cửa trước, hãy làm đơn giải trình giúp tôi"*
 • *"Tôi muốn đăng ký làm thêm giờ (OT) tối thứ 6 tuần này"*`,
-      timestamp: '08:30',
+      timestamp: timeLabel(),
       citationKeys: ['LEAVE.NOTICE_DAYS', 'LEAVE.ANNUAL_DAYS_PER_YEAR'],
     },
   ]);
@@ -119,20 +225,49 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
   // Bộ câu hỏi gợi ý nhanh chuẩn công sở
   const PROMPTS = [
     {
-      label: '🌴 Xin nghỉ phép 2 ngày tuần tới',
-      query: 'Tôi muốn xin nghỉ phép 2 ngày 15/10 và 16/10 do việc gia đình',
+      icon: <CalendarOutlined style={{ color: '#059669', fontSize: 16 }} />,
+      bg: '#ecfdf5',
+      border: '#a7f3d0',
+      tag: 'Nghỉ phép',
+      label: 'Xin nghỉ phép 2 ngày tuần tới',
+      desc: 'Nộp đơn nghỉ phép năm do việc gia đình',
+      query: 'Tôi muốn xin nghỉ phép 2 ngày vào thứ 5 và thứ 6 tuần tới do có việc gia đình.',
     },
     {
-      label: '⏰ Quên quẹt thẻ sáng nay',
-      query: 'Sáng nay tôi quên quẹt thẻ lúc 08:30, hãy giúp tôi làm đơn giải trình chấm công',
+      icon: <ClockCircleOutlined style={{ color: '#7c3aed', fontSize: 16 }} />,
+      bg: '#f5f3ff',
+      border: '#ddd6fe',
+      tag: 'Chấm công',
+      label: 'Giải trình quên quẹt thẻ sáng nay',
+      desc: 'Tạo đơn giải trình quẹt thẻ vào lúc 08:30',
+      query: 'Sáng nay tôi quên quẹt thẻ lúc 08:30 do cửa đông người, hãy giúp tôi làm đơn giải trình chấm công.',
     },
     {
-      label: '⚡ Đăng ký làm thêm giờ (OT 3 tiếng)',
-      query: 'Tôi muốn đăng ký làm thêm giờ (OT) 3 tiếng tối thứ 6 tuần này từ 18:00 đến 21:00',
+      icon: <ThunderboltOutlined style={{ color: '#d97706', fontSize: 16 }} />,
+      bg: '#fffbeb',
+      border: '#fde68a',
+      tag: 'Làm thêm giờ',
+      label: 'Đăng ký OT tối Thứ Sáu',
+      desc: 'Đăng ký làm thêm 3 tiếng (18:00 - 21:00)',
+      query: 'Tôi muốn đăng ký làm thêm giờ (OT) tối thứ 6 tuần này từ 18:00 đến 21:00 để hoàn thiện dự án.',
     },
     {
-      label: '📊 Kiểm tra số ngày phép còn lại',
-      query: 'Kiểm tra giúp tôi xem tôi hiện còn bao nhiêu ngày phép năm khả dụng?',
+      icon: <SwapOutlined style={{ color: '#2563eb', fontSize: 16 }} />,
+      bg: '#eff6ff',
+      border: '#bfdbfe',
+      tag: 'Đổi ca',
+      label: 'Đề xuất đổi ca làm việc',
+      desc: 'Xin chuyển từ Ca Sáng sang Ca Chiều',
+      query: 'Tôi có lịch khám sức khỏe buổi sáng, hãy giúp tôi tạo đề xuất đổi ca sang Ca Chiều vào ngày mai.',
+    },
+    {
+      icon: <FileTextOutlined style={{ color: '#0284c7', fontSize: 16 }} />,
+      bg: '#f0f9ff',
+      border: '#bae6fd',
+      tag: 'Tra cứu',
+      label: 'Kiểm tra quỹ ngày phép còn lại',
+      desc: 'Hỏi số ngày phép năm khả dụng trong năm 2026',
+      query: 'Kiểm tra giúp tôi xem tôi hiện còn bao nhiêu ngày phép năm khả dụng trong năm 2026?',
     },
   ];
 
@@ -145,7 +280,7 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
       id: `user-${Date.now()}`,
       sender: 'user',
       text,
-      timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      timestamp: timeLabel(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -153,9 +288,7 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
     setIsThinking(true);
 
     try {
-      // Chờ lâu hơn API (45 giây): AI có thể thử 2 model, và khi AI lỗi API vẫn trả phản hồi dự phòng
       const res: any = await apiClient.post('/agent/chat', { message: text, conversationId }, { timeout: 50000 });
-      // Chỉ nhận id do AI cấp: phản hồi dự phòng không có hội thoại để nhớ
       if (res.conversationId && !res.fallback) {
         setConversationId(res.conversationId);
       }
@@ -178,7 +311,7 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
         id: `err-${Date.now()}`,
         sender: 'agent',
         text: 'Xin lỗi bạn, kết nối đến hệ thống máy chủ AI đang bị gián đoạn. Bạn vui lòng thử lại sau giây lát.',
-        timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        timestamp: timeLabel(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -194,8 +327,6 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
     }
     setSubmittingCardId(card.id);
     try {
-      // 1. Tạo đơn thật bằng tài khoản của chính nhân viên, đúng nội dung thẻ AI đã soạn.
-      // idempotencyKey theo id thẻ: bấm 2 lần không tạo 2 đơn.
       const res: any = await apiClient.post('/requests', {
         type: card.requestType,
         payload: card.payload,
@@ -204,7 +335,6 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
 
       const newRequestId: string = res.id;
 
-      // 2. Cập nhật trạng thái Action Card trong hội thoại
       setMessages((prev) =>
         prev.map((m) => {
           if (m.actionCard && m.actionCard.id === card.id) {
@@ -218,55 +348,146 @@ Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
             };
           }
           return m;
-        })
+        }),
       );
 
       message.success(`Đã tạo và gửi đơn thành công! Mã yêu cầu: #${newRequestId.slice(0, 8)}`);
 
-      // 3. Phản hồi xác nhận từ AI
       setTimeout(() => {
         const followUpMsg: ChatMessage = {
           id: `agent-confirm-${Date.now()}`,
           sender: 'agent',
-          text: `🎉 **Đã gửi duyệt!** ${card.title} của bạn đã được ghi nhận với mã **#${newRequestId.slice(0, 8)}**. Hệ thống sẽ xét duyệt trong ít phút, hoặc chuyển cho Quản lý nếu cần.
-
-Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục **Quản lý Đơn từ**.`,
-          timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          text: `🎉 **Đã gửi duyệt thành công!** Đơn **${card.title}** của bạn đã được ghi nhận với mã **#${newRequestId.slice(0, 8)}**.\n\nHệ thống sẽ tự động xét duyệt theo quy chế hoặc chuyển tiếp tới Quản lý trực tiếp xem xét. Bạn có thể theo dõi tiến độ bất kỳ lúc nào tại mục **Quản lý Đơn từ**.`,
+          timestamp: timeLabel(),
         };
         setMessages((prev) => [...prev, followUpMsg]);
       }, 500);
     } catch (err: any) {
-      // Vd: API chặn đơn trùng ngày nghỉ hoặc ngày đã qua (luật cứng)
       message.error(apiErrorText(err, 'Không thể nộp đơn. Vui lòng thử lại.'));
     } finally {
       setSubmittingCardId(null);
     }
   };
 
+  // Sao chép nội dung tin nhắn
+  const handleCopyText = (content: string) => {
+    navigator.clipboard.writeText(content);
+    message.success('Đã sao chép nội dung vào khay nhớ tạm!');
+  };
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div>
-          <Title level={3} style={{ margin: 0 }}>
-            Trợ lý Nhân sự HR Copilot
-          </Title>
-          <Text type="secondary">
-            Hội thoại thông minh hỗ trợ giải đáp chế độ chính sách và tự động soạn thảo đơn từ nộp duyệt.
-          </Text>
-        </div>
+      {/* Top Header thanh thoát & chuẩn thương hiệu */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 18,
+          background: '#ffffff',
+          padding: '16px 20px',
+          borderRadius: 14,
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        <Space align="center" size={14}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: 22,
+              boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)',
+            }}
+          >
+            <RobotOutlined />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+                Trợ lý Nhân sự HR Copilot
+              </Title>
+              <Tag
+                style={{
+                  borderRadius: 20,
+                  padding: '2px 10px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  border: '1px solid #a7f3d0',
+                  background: '#ecfdf5',
+                  color: '#065f46',
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    backgroundColor: '#10b981',
+                    display: 'inline-block',
+                    boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.2)',
+                  }}
+                />
+                Đang trực tuyến (OpenAI GPT-5.6)
+              </Tag>
+            </div>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              Hội thoại thông minh hỗ trợ giải đáp chế độ chính sách và tự động soạn thảo đơn từ nộp duyệt.
+            </Text>
+          </div>
+        </Space>
+
+        <Space>
+          <Tooltip title="Xóa lịch sử hội thoại và bắt đầu phiên mới">
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                setMessages([
+                  {
+                    id: 'welcome-msg',
+                    sender: 'agent',
+                    text: `Xin chào **${user?.fullName || 'bạn'}**! 👋 Tôi là **Trợ lý HR Copilot**, sẵn sàng hỗ trợ bạn tra cứu quy chế công ty và tự động lập các loại đơn từ nhân sự.
+
+Bạn có thể yêu cầu tôi bằng ngôn từ tự nhiên, ví dụ:
+• *"Tôi muốn xin nghỉ phép 2 ngày tuần tới do việc gia đình"*
+• *"Sáng nay tôi quên quẹt thẻ cửa trước, hãy làm đơn giải trình giúp tôi"*
+• *"Tôi muốn đăng ký làm thêm giờ (OT) tối thứ 6 tuần này"*`,
+                    timestamp: timeLabel(),
+                    citationKeys: ['LEAVE.NOTICE_DAYS', 'LEAVE.ANNUAL_DAYS_PER_YEAR'],
+                  },
+                ]);
+                setConversationId(undefined);
+                message.info('Đã làm mới phiên hội thoại với Trợ lý HR.');
+              }}
+              style={{ borderRadius: 8, fontWeight: 500 }}
+            >
+              Làm mới hội thoại
+            </Button>
+          </Tooltip>
+        </Space>
       </div>
 
       <Row gutter={[20, 20]}>
         {/* Khung Chat chính */}
-        <Col xs={24} lg={17}>
+        <Col xs={24} lg={16}>
           <Card
             style={{
               borderRadius: 14,
               border: '1px solid #e2e8f0',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.05)',
+              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.04)',
               display: 'flex',
               flexDirection: 'column',
-              height: '75vh',
+              height: 'calc(100vh - 215px)',
+              minHeight: 580,
             }}
             styles={{
               body: {
@@ -294,8 +515,9 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                     <Avatar
                       style={{
                         backgroundColor: isUser ? '#0f172a' : '#059669',
-                        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)',
+                        boxShadow: isUser ? '0 2px 6px rgba(15, 23, 42, 0.25)' : '0 2px 8px rgba(5, 150, 105, 0.3)',
                         flexShrink: 0,
+                        marginTop: 2,
                       }}
                       icon={isUser ? <UserOutlined /> : <RobotOutlined />}
                     />
@@ -308,13 +530,15 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                           padding: '14px 18px',
                           borderRadius: isUser ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
                           border: isUser ? 'none' : '1px solid #e2e8f0',
-                          boxShadow: isUser ? '0 3px 10px rgba(15, 23, 42, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.04)',
+                          boxShadow: isUser
+                            ? '0 3px 12px rgba(15, 23, 42, 0.15)'
+                            : '0 2px 8px rgba(0, 0, 0, 0.04)',
                           lineHeight: 1.65,
                           fontSize: 14,
-                          whiteSpace: 'pre-line',
                         }}
                       >
-                        {m.text}
+                        {/* Văn bản tin nhắn hiển thị chuẩn Markdown */}
+                        {isUser ? m.text : renderFormattedText(m.text)}
 
                         {m.fallback && (
                           <div style={{ marginTop: 8 }}>
@@ -324,15 +548,26 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                           </div>
                         )}
 
-                        {/* Thẻ trích dẫn quy chế (Đã Việt hóa sạch 100%) */}
+                        {/* Thẻ trích dẫn quy chế công ty áp dụng */}
                         {m.citationKeys && m.citationKeys.length > 0 && !isUser && (
                           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #f1f5f9' }}>
-                            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                            <Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginBottom: 6, fontWeight: 600 }}>
                               Căn cứ quy chế công ty áp dụng:
                             </Text>
                             <Space wrap size={[6, 6]}>
                               {m.citationKeys.map((k) => (
-                                <Tag key={k} color="emerald" icon={<BookOutlined />} style={{ borderRadius: 6, fontSize: 11 }}>
+                                <Tag
+                                  key={k}
+                                  icon={<BookOutlined style={{ color: '#059669' }} />}
+                                  style={{
+                                    borderRadius: 6,
+                                    fontSize: 11.5,
+                                    backgroundColor: '#f0fdf4',
+                                    borderColor: '#bbf7d0',
+                                    color: '#065f46',
+                                    padding: '2px 8px',
+                                  }}
+                                >
                                   {formatPolicyName(k)}
                                 </Tag>
                               ))}
@@ -348,10 +583,12 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                               marginTop: 14,
                               background: '#f8fafc',
                               border: '1px solid #cbd5e1',
+                              borderTop: '3px solid #059669',
                               borderRadius: 12,
+                              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.03)',
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                               <Space>
                                 <FileDoneOutlined style={{ color: '#059669', fontSize: 18 }} />
                                 <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>
@@ -361,27 +598,33 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                               <RiskBadge riskLevel={m.actionCard.riskLevel} />
                             </div>
 
-                            <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 10 }}>
-                              <Row gutter={[10, 6]}>
+                            <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12 }}>
+                              <Row gutter={[12, 8]}>
                                 <Col span={12}>
-                                  <Text type="secondary" style={{ fontSize: 11 }}>Thời gian dự kiến:</Text>
+                                  <Text type="secondary" style={{ fontSize: 11 }}>Thời gian áp dụng:</Text>
                                   <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 13 }}>
                                     {m.actionCard.data.dates}
                                   </div>
                                 </Col>
                                 <Col span={12}>
-                                  <Text type="secondary" style={{ fontSize: 11 }}>Khối lượng / Thời lượng:</Text>
+                                  <Text type="secondary" style={{ fontSize: 11 }}>Thời lượng / Khối lượng:</Text>
                                   <div style={{ fontWeight: 600, color: '#059669', fontSize: 13 }}>
                                     {m.actionCard.data.durationText}
+                                  </div>
+                                </Col>
+                                <Col span={24}>
+                                  <Text type="secondary" style={{ fontSize: 11 }}>Lý do đề xuất:</Text>
+                                  <div style={{ fontSize: 12.5, color: '#334155' }}>
+                                    {m.actionCard.data.reason || '—'}
                                   </div>
                                 </Col>
                               </Row>
                             </div>
 
                             {/* Checklist đối soát quy chế */}
-                            <div style={{ marginBottom: 12 }}>
+                            <div style={{ marginBottom: 14 }}>
                               <Text strong style={{ fontSize: 12, color: '#334155', display: 'block', marginBottom: 6 }}>
-                                Kết quả đối soát quy định:
+                                Kết quả đối soát quy chế doanh nghiệp:
                               </Text>
                               <Space direction="vertical" style={{ width: '100%' }} size={4}>
                                 {m.actionCard.policyChecks.map((check, idx) => (
@@ -407,7 +650,7 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                             </div>
 
                             {/* Nút nộp đơn */}
-                            <div style={{ textAlign: 'right' }}>
+                            <div style={{ textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                               {m.actionCard.status === 'submitted' ? (
                                 <Tag color="success" style={{ padding: '4px 12px', fontSize: 12, borderRadius: 6 }}>
                                   ✓ Đã nộp thành công (#{m.actionCard.submittedRequestId?.slice(0, 8)})
@@ -418,9 +661,9 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                                   icon={<CheckOutlined />}
                                   loading={submittingCardId === m.actionCard.id}
                                   onClick={() => handleConfirmSubmit(m.actionCard!)}
-                                  style={{ background: '#059669', borderColor: '#059669', fontWeight: 600 }}
+                                  style={{ background: '#059669', borderColor: '#059669', fontWeight: 600, borderRadius: 6 }}
                                 >
-                                  Xác nhận gửi duyệt
+                                  Xác nhận nộp đơn này ngay
                                 </Button>
                               )}
                             </div>
@@ -428,16 +671,32 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                         )}
                       </div>
 
+                      {/* Footer tin nhắn: thời gian & nút sao chép */}
                       <div
                         style={{
                           fontSize: 11,
                           color: '#94a3b8',
                           marginTop: 4,
-                          textAlign: isUser ? 'right' : 'left',
+                          display: 'flex',
+                          justifyContent: isUser ? 'flex-end' : 'space-between',
+                          alignItems: 'center',
                           padding: '0 4px',
                         }}
                       >
-                        {m.timestamp}
+                        {!isUser && (
+                          <Tooltip title="Sao chép nội dung câu trả lời">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<CopyOutlined />}
+                              onClick={() => handleCopyText(m.text)}
+                              style={{ fontSize: 11, color: '#94a3b8', padding: '0 4px', height: 20 }}
+                            >
+                              Sao chép
+                            </Button>
+                          </Tooltip>
+                        )}
+                        <span>{m.timestamp}</span>
                       </div>
                     </div>
                   </div>
@@ -469,9 +728,26 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
               <div ref={chatBottomRef} />
             </div>
 
-            {/* Input Box gửi tin nhắn */}
-            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
-              <div style={{ display: 'flex', gap: 10 }}>
+            {/* Input Box gửi tin nhắn hiện đại */}
+            <div
+              style={{
+                borderTop: '1px solid #f1f5f9',
+                paddingTop: 12,
+                background: '#ffffff',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'flex-end',
+                  background: '#f8fafc',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+                }}
+              >
                 <Input.TextArea
                   rows={2}
                   value={inputText}
@@ -483,7 +759,14 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                     }
                   }}
                   placeholder="Nhập yêu cầu xin nghỉ phép, giải trình công hoặc hỏi quy chế công ty (Nhấn Enter để gửi)..."
-                  style={{ borderRadius: 10, resize: 'none' }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    boxShadow: 'none',
+                    resize: 'none',
+                    padding: 0,
+                    fontSize: 13.5,
+                  }}
                 />
                 <Button
                   type="primary"
@@ -491,64 +774,186 @@ Bạn có thể theo dõi tiến độ duyệt bất kỳ lúc nào tại mục 
                   loading={isThinking}
                   onClick={() => handleSendMessage()}
                   style={{
-                    height: 'auto',
+                    height: 38,
                     background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                     border: 0,
-                    borderRadius: 10,
-                    padding: '0 22px',
+                    borderRadius: 8,
+                    padding: '0 18px',
                     fontWeight: 600,
+                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                    flexShrink: 0,
                   }}
                 >
                   Gửi
                 </Button>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, padding: '0 4px' }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  💡 Mẹo: Nhấn <strong>Enter</strong> để gửi nhanh, <strong>Shift + Enter</strong> để xuống dòng.
+                </Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Powered by OpenAI GPT-5.6 Multi-Agent Engine
+                </Text>
               </div>
             </div>
           </Card>
         </Col>
 
         {/* Cột phải: Gợi ý câu hỏi nhanh & Giới thiệu tính năng */}
-        <Col xs={24} lg={7}>
+        <Col xs={24} lg={8}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {/* Thẻ Gợi ý tác vụ nhanh */}
             <Card
-              title={<span style={{ fontWeight: 600 }}>Gợi ý tác vụ nhanh</span>}
-              style={{ borderRadius: 14, border: '1px solid #e2e8f0' }}
+              title={
+                <Space>
+                  <ThunderboltOutlined style={{ color: '#059669' }} />
+                  <span style={{ fontWeight: 700 }}>Gợi ý tác vụ nhanh</span>
+                </Space>
+              }
+              style={{ borderRadius: 14, border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)' }}
             >
               <Space direction="vertical" style={{ width: '100%' }} size={10}>
                 {PROMPTS.map((p, idx) => (
-                  <Button
+                  <div
                     key={idx}
-                    block
-                    style={{
-                      textAlign: 'left',
-                      height: 'auto',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1px solid #e2e8f0',
-                      whiteSpace: 'normal',
-                      fontSize: 13,
-                    }}
                     onClick={() => handleSendMessage(p.query)}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#059669';
+                      e.currentTarget.style.backgroundColor = '#f0fdf4';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.backgroundColor = '#ffffff';
+                      e.currentTarget.style.transform = 'none';
+                    }}
                   >
-                    {p.label}
-                  </Button>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        backgroundColor: p.bg,
+                        border: `1px solid ${p.border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {p.icon}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{p.label}</span>
+                        <Tag style={{ fontSize: 10, margin: 0, padding: '0 6px', borderRadius: 4 }}>{p.tag}</Tag>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.desc}
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </Space>
             </Card>
 
+            {/* Thẻ Cam kết Bảo mật & Tuân thủ AI */}
             <Card
               title={
                 <Space>
                   <SafetyCertificateOutlined style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 600 }}>Cam kết Bảo mật AI</span>
+                  <span style={{ fontWeight: 700 }}>Cam kết Bảo mật AI</span>
                 </Space>
               }
-              style={{ borderRadius: 14, border: '1px solid #e2e8f0' }}
+              style={{ borderRadius: 14, border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)' }}
             >
-              <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.8 }}>
-                <div>✓ Dữ liệu hội thoại được bảo mật nội bộ doanh nghiệp.</div>
-                <div>✓ AI chỉ đóng vai trò trợ lý soạn thảo và kiểm tra quy chế.</div>
-                <div>✓ Mọi quyết định chính thức đều được kiểm duyệt bởi Quản lý.</div>
-              </div>
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      background: '#ecfdf5',
+                      color: '#059669',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    <LockOutlined style={{ fontSize: 14 }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 12.5, color: '#0f172a' }}>Bảo mật dữ liệu nội bộ</div>
+                    <div style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.5 }}>
+                      Dữ liệu hội thoại được mã hóa và bảo vệ khép kín trong mạng doanh nghiệp.
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      background: '#eff6ff',
+                      color: '#2563eb',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    <AuditOutlined style={{ fontSize: 14 }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 12.5, color: '#0f172a' }}>Đối soát quy chế tự động</div>
+                    <div style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.5 }}>
+                      AI đối soát theo thời gian thực với Bộ quy chuẩn chính sách công ty 2026.
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      background: '#fef3c7',
+                      color: '#d97706',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    <CheckCircleOutlined style={{ fontSize: 14 }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 12.5, color: '#0f172a' }}>Kiểm soát 2 lớp (Human-in-the-loop)</div>
+                    <div style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.5 }}>
+                      AI hỗ trợ lập dự thảo đơn, mọi quyết định phê duyệt đều do Quản lý phê chuẩn.
+                    </div>
+                  </div>
+                </div>
+              </Space>
             </Card>
           </Space>
         </Col>
