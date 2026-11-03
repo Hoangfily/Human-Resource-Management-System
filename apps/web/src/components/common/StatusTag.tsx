@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag } from 'antd';
+import { Tag, Tooltip } from 'antd';
 import { formatRequestStatus } from '../../lib/display-mappers';
 
 interface StatusTagProps {
@@ -11,36 +11,43 @@ export const StatusTag: React.FC<StatusTagProps> = ({ status, showDot = true }) 
   const meta = formatRequestStatus(status);
 
   return (
-    <Tag
-      style={{
-        backgroundColor: meta.bg,
-        borderColor: meta.border,
-        color: meta.tagColor,
-        fontWeight: 600,
-        fontSize: 12,
-        borderRadius: 6,
-        padding: '2px 10px',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        whiteSpace: 'nowrap',
-        margin: 0,
-      }}
-    >
-      {showDot && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            backgroundColor: meta.tagColor,
-            display: 'inline-block',
-            flexShrink: 0,
-          }}
-        />
-      )}
-      <span>{meta.label}</span>
-    </Tag>
+    <Tooltip title={meta.description || meta.label}>
+      <Tag
+        style={{
+          backgroundColor: meta.bg,
+          borderColor: meta.border,
+          color: meta.tagColor,
+          fontWeight: 600,
+          fontSize: 12,
+          borderRadius: 6,
+          padding: '2px 8px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          whiteSpace: 'nowrap',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          margin: 0,
+        }}
+      >
+        {showDot && (
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              backgroundColor: meta.tagColor,
+              display: 'inline-block',
+              flexShrink: 0,
+            }}
+          />
+        )}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {meta.label}
+        </span>
+      </Tag>
+    </Tooltip>
   );
 };
 

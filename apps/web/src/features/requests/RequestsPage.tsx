@@ -804,6 +804,7 @@ export const RequestsPage: React.FC = () => {
               columns={columns}
               rowKey="id"
               loading={loading}
+              tableLayout="fixed"
               pagination={{
                 pageSize: 8,
                 showSizeChanger: false,

@@ -82,8 +82,8 @@ export const REQUEST_STATUS_MAP: Record<string, StatusMeta> = {
     description: 'Đơn không được chấp thuận bởi cấp quản lý hoặc vi phạm quy chế.',
   },
   ESCALATED: {
-    label: 'Chuyển cấp thẩm định HR',
-    shortLabel: 'Chuyển HR',
+    label: 'Chờ HR thẩm định',
+    shortLabel: 'Chờ HR',
     tagColor: '#7c3aed',
     badgeStatus: 'warning',
     bg: '#f5f3ff',
