@@ -22,7 +22,7 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { RequestType } from '@hr-agent/shared';
+import { RequestType, UserRole } from '@hr-agent/shared';
 import { StatusTag, RoleTag } from './components/common';
 import {
   MOCK_USERS,
@@ -257,19 +257,19 @@ export default function App() {
           </Paragraph>
           <Space wrap>
             <Button
-              type={currentUser?.role === 'EMPLOYEE' ? 'primary' : 'default'}
+              type={currentUser?.role === UserRole.Employee ? 'primary' : 'default'}
               onClick={() => handleSelectUser('employee')}
             >
               1. Nhân viên (An Nguyễn)
             </Button>
             <Button
-              type={currentUser?.role === 'MANAGER' ? 'primary' : 'default'}
+              type={currentUser?.role === UserRole.Manager ? 'primary' : 'default'}
               onClick={() => handleSelectUser('manager')}
             >
               2. Trưởng nhóm Quản lý (Bích Trần)
             </Button>
             <Button
-              type={currentUser?.role === 'HR_ADMIN' ? 'primary' : 'default'}
+              type={currentUser?.role === UserRole.HrAdmin ? 'primary' : 'default'}
               onClick={() => handleSelectUser('hrAdmin')}
             >
               3. Quản trị HR (Cường Lê)

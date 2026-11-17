@@ -1,0 +1,23 @@
+# Build context = repo root (docker-compose.yml). Keep secrets and local artifacts out of every image.
+.git
+.github
+.vscode
+.claude
+
+# Never copy real environment files into an image layer (only the *.example files stay)
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+# Rebuilt inside the image
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.venv
+**/__pycache__
+**/.pytest_cache
+
+# Not needed to build or run
+docs
+*.pdf

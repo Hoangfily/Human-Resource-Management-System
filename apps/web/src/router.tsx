@@ -8,6 +8,7 @@ import { ProtectedRoute } from './features/auth/ProtectedRoute';
 
 // Pages
 import { LoginPage } from './features/auth/LoginPage';
+import { ChangePasswordPage } from './features/auth/ChangePasswordPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RequestsPage } from './features/requests/RequestsPage';
 import { ApprovalsPage } from './features/approvals/ApprovalsPage';
@@ -22,6 +23,10 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/change-password',
+    element: <ChangePasswordPage />,
   },
   {
     path: '/',

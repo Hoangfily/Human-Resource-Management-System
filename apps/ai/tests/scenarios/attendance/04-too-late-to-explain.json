@@ -1,0 +1,35 @@
+{
+  "id": "att-04-too-late-to-explain",
+  "description": "Giải trình cho ngày 12/10 sau 5 ngày làm việc, quá hạn 3 ngày",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-12",
+      "issue": "MISSING_CLOCK_OUT",
+      "requestedTime": "17:30",
+      "explanation": "Quên chấm công ra"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-12T01:28:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "quá hạn 3 ngày"
+  }
+}

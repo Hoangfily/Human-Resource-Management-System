@@ -1,0 +1,128 @@
+# Chạy thật (một máy chủ). Khác docker-compose.yml (máy phát triển):
+#   - Chỉ `proxy` (Caddy) mở cổng ra ngoài; Postgres, API, AI, Web chỉ nằm trong mạng nội bộ của Docker.
+#   - Mọi bí mật bắt buộc phải đặt (thiếu thì `docker compose` dừng ngay, không có giá trị mặc định).
+#   - API và AI chạy ở chế độ production: từ chối khởi động nếu còn secret/token/mật khẩu mẫu.
+#   - Web và API cùng một origin (qua proxy) nên không cần CORS.
+#
+#   cp .env.production.example .env.production      # điền giá trị; npm run secrets:generate sinh các bí mật
+#   npm run prod:up                                 # build và chạy
+#   npm run prod:seed                               # lần đầu: nạp dữ liệu tham chiếu (loại nghỉ, quy chế…)
+#   npm run prod:admin -- admin@congty.vn "Họ tên" "MatKhauTam123"   # lần đầu: tạo quản trị viên
+name: hr-prod # Tên project riêng: volume dữ liệu không dùng chung với bản phát triển
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hr_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-hr_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong .env.production (npm run secrets:generate)}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Chỉ đứng sau proxy: lấy IP người dùng thật từ X-Forwarded-For để giới hạn số lần gọi theo IP
+      TRUST_PROXY: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hr_agent}:${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hr_agent}?schema=public
+      AI_API_BASE_URL: http://ai:8000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?Đặt AI_SERVICE_TOKEN (npm run secrets:generate)}
+      AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:?Đặt AI_INBOUND_TOKEN (npm run secrets:generate)}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Đặt JWT_ACCESS_SECRET (npm run secrets:generate)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Đặt JWT_REFRESH_SECRET (npm run secrets:generate)}
+      THROTTLE_LOGIN_PER_MIN: ${THROTTLE_LOGIN_PER_MIN:-}
+      THROTTLE_CHAT_PER_MIN: ${THROTTLE_CHAT_PER_MIN:-}
+      THROTTLE_GLOBAL_PER_MIN: ${THROTTLE_GLOBAL_PER_MIN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ai:
+    build:
+      context: .
+      dockerfile: infra/docker/ai.Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      PORT: 8000
+      API_BASE_URL: http://api:3000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?Đặt AI_SERVICE_TOKEN}
+      AI_INBOUND_TOKEN: ${AI_INBOUND_TOKEN:?Đặt AI_INBOUND_TOKEN}
+      # Thiếu key thì AI chạy "degraded": mọi đơn đều chuyển cho người duyệt và chat dùng phản hồi dự phòng
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Đặt OPENAI_API_KEY trong .env.production}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_FALLBACK_MODELS: ${LLM_FALLBACK_MODELS:-}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+      COMPANY_TIMEZONE: ${COMPANY_TIMEZONE:-Asia/Ho_Chi_Minh}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        # "/" = gọi API cùng origin (/api/v1/...): chạy được với mọi tên miền hay IP mà không phải build lại
+        VITE_API_BASE_URL: "/"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      # Trống: phục vụ HTTP cổng 80 (đủ để chạy thử, không cần tên miền).
+      # Đặt tên miền trỏ về máy chủ (ví dụ hr.congty.vn): Caddy tự xin và gia hạn chứng chỉ HTTPS (cần mở cổng 80 và 443).
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./infra/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # Chứng chỉ HTTPS đã xin: mất volume này là phải xin lại
+      - caddy_config:/config
+    healthcheck:
+      # Caddy lắng nghe trang quản trị ở localhost:2019 trong container; chỉ trả lời khi Caddyfile hợp lệ và đã nạp xong
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

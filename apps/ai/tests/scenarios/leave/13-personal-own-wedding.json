@@ -1,0 +1,30 @@
+{
+  "id": "leave-13-personal-own-wedding",
+  "description": "Nghỉ việc riêng có lương 3 ngày cho đám cưới của chính mình: đúng policy, trong giới hạn 3 ngày",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "leaveTypeId": "lt-personal",
+      "startDate": "2026-11-04",
+      "endDate": "2026-11-06",
+      "reason": "Tổ chức đám cưới của em vào ngày 05/11"
+    },
+    "computed": {
+      "daysRequested": 3
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.95,
+    "policy_refs": [
+      "LEAVE.PERSONAL_DAYS"
+    ],
+    "rationale": "Kết hôn được nghỉ 3 ngày có lương.",
+    "employee_message": "Đơn nghỉ cưới của bạn đã được duyệt. Chúc mừng hạnh phúc."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "id": "att-08-attendance-data-unavailable",
+  "description": "API chưa có /attendance/events (như apps/api hiện tại): không đối chiếu được, phải escalate",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "MISSING_CLOCK_OUT",
+      "requestedTime": "17:35",
+      "explanation": "Quên chấm công ra vì họp với khách hàng"
+    }
+  },
+  "missing_paths": [
+    "/attendance/events"
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Không đọc được dữ liệu chấm công gốc"
+  }
+}

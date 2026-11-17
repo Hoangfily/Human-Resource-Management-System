@@ -1,0 +1,29 @@
+{
+  "id": "leave-04-vague-reason",
+  "description": "Lý do vô nghĩa, không đánh giá được: phải chuyển người duyệt, không được từ chối",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "startDate": "2026-10-29",
+      "endDate": "2026-10-29",
+      "reason": "abc xyz"
+    },
+    "computed": {
+      "daysRequested": 1
+    }
+  },
+  "llm": {
+    "decision": "ESCALATED",
+    "risk_level": "MEDIUM",
+    "confidence": 0.7,
+    "policy_refs": [
+      "LEAVE.ANNUAL_DAYS_PER_YEAR"
+    ],
+    "rationale": "Lý do không rõ nghĩa.",
+    "employee_message": "Đơn của bạn đã được chuyển cho quản lý xem xét."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}

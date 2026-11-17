@@ -1,0 +1,78 @@
+name: Docker
+
+# Dựng cả stack production (docker-compose.prod.yml) rồi gọi thử qua proxy. Chỉ chạy khi file liên quan tới
+# image/hạ tầng thay đổi: build ba image mất vài phút.
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - "package.json"
+      - "package-lock.json"
+      - "apps/*/package.json"
+      - "apps/api/prisma/**"
+      - "apps/ai/requirements.txt"
+      - "scripts/**"
+      - ".github/workflows/docker.yml"
+  push:
+    branches: [api, main]
+    paths:
+      - "infra/**"
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - "package.json"
+      - "package-lock.json"
+      - "apps/*/package.json"
+      - "apps/api/prisma/**"
+      - "apps/ai/requirements.txt"
+      - "scripts/**"
+      - ".github/workflows/docker.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prod-stack:
+    name: Production stack builds and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose files are valid
+        run: docker compose -f docker-compose.yml config -q
+
+      - name: Build and start the production stack
+        run: |
+          # Bí mật ngẫu nhiên chỉ dùng trong job này; OPENAI_API_KEY giả nên AI chạy ở chế độ "degraded" (không gọi OpenAI)
+          node scripts/gen-secrets.mjs 2>/dev/null | grep '=' > .env.production
+          echo "OPENAI_API_KEY=ci-placeholder-not-a-real-key" >> .env.production
+          # --wait: chờ mọi dịch vụ có healthcheck sang trạng thái healthy (lỗi build, migration hay Caddyfile sai đều dừng ở đây)
+          docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build --wait --wait-timeout 300
+
+      - name: Smoke test through the proxy
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 http://127.0.0.1/api/v1/health
+          echo
+          curl --fail --silent --show-error http://127.0.0.1/ | grep -q 'id="root"'
+          # Chỉ proxy được mở ra ngoài: API, AI và Postgres không được nghe trên máy chủ
+          for port in 3000 8000 5432; do
+            if (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null; then echo "Cổng $port đang mở ra máy chủ"; exit 1; fi
+          done
+          # Đăng nhập không có mật khẩu phải bị từ chối
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d '{"email":"admin@gmail.com"}')
+          test "$code" = 400
+
+      - name: Logs
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=150
+
+      - name: Clean up
+        if: always()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.production down -v

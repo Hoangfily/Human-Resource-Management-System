@@ -1,0 +1,21 @@
+{
+  "id": "chat-21-draft-attendance-past",
+  "description": "Quên chấm công ra thứ 6 tuần trước",
+  "today": "2026-10-19",
+  "turns": [
+    "Thứ 6 tuần trước tôi quên chấm công ra, tôi về lúc 17h45 vì quên mang thẻ"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "ATTENDANCE_EXPLANATION",
+      "payload": {
+        "date": "2026-10-16",
+        "issue": "MISSING_CLOCK_OUT",
+        "requestedTime": "17:45"
+      }
+    }
+  }
+}

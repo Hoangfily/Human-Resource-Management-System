@@ -1,5 +1,5 @@
-import React from 'react';
-import { Card, Row, Col, Statistic, Typography, Button, Space, Table, Alert, Progress, Tag } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Card, Row, Col, Typography, Button, Space, Table, Alert, Progress, Tag } from 'antd';
 import {
   CalendarOutlined,
   ClockCircleOutlined,
@@ -9,42 +9,110 @@ import {
   CheckSquareOutlined,
   ThunderboltOutlined,
   ArrowRightOutlined,
+  FileDoneOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { MOCK_LEAVE_BALANCE, MOCK_REQUESTS } from '../../lib/mock-data';
-import { StatusTag } from '../../components/common';
+import { StatusTag, RequestTypeTag, RiskBadge, EmptyState } from '../../components/common';
 import { RequestType } from '@hr-agent/shared';
+import apiClient from '../../lib/api-client';
+import { LeaveBalanceResponse, RequestItem } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalanceResponse>(MOCK_LEAVE_BALANCE);
+  const [profile, setProfile] = useState<any>(null);
+  const [requests, setRequests] = useState<RequestItem[]>(MOCK_REQUESTS);
+  const [attendance, setAttendance] = useState<any>(null);
 
-  const annualLeave = MOCK_LEAVE_BALANCE.balances.find((b) => b.leaveType === 'ANNUAL');
-  const sickLeave = MOCK_LEAVE_BALANCE.balances.find((b) => b.leaveType === 'SICK');
-  const pendingRequests = MOCK_REQUESTS.filter((r) => r.status === 'PENDING');
+  useEffect(() => {
+    // Tải số dư quỹ phép thực tế từ PostgreSQL
+    apiClient
+      .get<LeaveBalanceResponse>('/leave/balance')
+      .then((res) => {
+        const data = res as unknown as LeaveBalanceResponse;
+        if (data && data.balances && data.balances.length > 0) {
+          setLeaveBalance(data);
+        }
+      })
+      .catch(() => {});
+
+    // Tải danh sách đơn thực tế từ Backend
+    apiClient
+      .get<RequestItem[]>('/requests')
+      .then((res) => {
+        const data = res as unknown as RequestItem[];
+        if (Array.isArray(data)) {
+          setRequests(data);
+        }
+      })
+      .catch(() => {});
+
+    // Tải hồ sơ nhân viên chi tiết từ Backend
+    apiClient
+      .get<any>('/employees/me')
+      .then((res) => {
+        const data = res as unknown as any;
+        if (data) {
+          setProfile(data);
+        }
+      })
+      .catch(() => {});
+
+    // Tải trạng thái chấm công hôm nay
+    apiClient
+      .get<any>('/attendance/status')
+      .then((res) => {
+        const data = res as unknown as any;
+        if (data) {
+          setAttendance(data);
+        }
+      })
+      .catch(() => {});
+  }, [user?.id]);
+
+  const annualLeave = leaveBalance.balances.find(
+    (b: any) => b.leaveType === 'ANNUAL' || b.leaveTypeCode === 'ANNUAL',
+  );
+  const sickLeave = leaveBalance.balances.find(
+    (b: any) => b.leaveType === 'SICK' || b.leaveTypeCode === 'SICK',
+  );
+  const pendingRequests = requests.filter((r) => r.status === 'PENDING');
+  const approvedRequests = requests.filter((r) => r.status === 'APPROVED');
+  const approvalRate =
+    requests.length > 0 ? Math.round((approvedRequests.length / requests.length) * 100) : 100;
 
   const columns = [
     {
       title: 'Mã đơn',
       dataIndex: 'id',
       key: 'id',
-      render: (id: string) => <Text code style={{ color: '#0f766e', fontWeight: 600 }}>{id}</Text>,
+      render: (id: string) => (
+        <Text code style={{ color: '#0f766e', fontWeight: 600 }}>
+          {id.length > 10 ? `${id.slice(0, 8)}...` : id}
+        </Text>
+      ),
     },
     {
       title: 'Loại yêu cầu',
       dataIndex: 'type',
       key: 'type',
-      render: (type: RequestType) => {
-        const labels: Record<string, string> = {
-          [RequestType.Leave]: 'Nghỉ phép',
-          [RequestType.AttendanceExplanation]: 'Bổ sung chấm công',
-          [RequestType.ShiftChange]: 'Đổi ca làm việc',
-        };
-        return <Tag color="cyan" style={{ borderRadius: 6 }}>{labels[type] || type}</Tag>;
-      },
+      render: (type: RequestType) => <RequestTypeTag type={type} />,
+    },
+    {
+      title: 'Đánh giá AI',
+      key: 'aiRisk',
+      render: (_: unknown, record: RequestItem) => (
+        <RiskBadge
+          riskLevel={record.riskLevel}
+          confidence={record.aiConfidence}
+          showScore={false}
+        />
+      ),
     },
     {
       title: 'Trạng thái',
@@ -78,7 +146,9 @@ export const DashboardPage: React.FC = () => {
               Chào buổi sáng, {user?.fullName}! 👋
             </Title>
             <Paragraph style={{ color: 'rgba(255, 255, 255, 0.88)', margin: '6px 0 0', fontSize: 14 }}>
-              Hôm nay là Thứ Tư, 07/10/2026 • {user?.departmentName} ({user?.positionName})
+              {profile?.departmentName || user?.departmentName || 'Phòng Kỹ thuật'} • {profile?.positionName || user?.positionName || 'Chuyên viên'}
+              {profile?.managerName ? ` • Quản lý trực tiếp: ${profile.managerName}` : ''}
+              {profile?.shiftTime ? ` • Ca: ${profile.shiftTime}` : ' • Ca: 08:30 - 17:30'}
             </Paragraph>
           </Col>
           <Col xs={24} md={8} style={{ textAlign: 'right' }}>
@@ -121,7 +191,7 @@ export const DashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable style={{ border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Phép năm còn lại</Text>
+              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Quỹ phép năm còn lại</Text>
               <CalendarOutlined style={{ color: '#059669', fontSize: 18 }} />
             </div>
             <div style={{ margin: '10px 0 6px' }}>
@@ -139,7 +209,7 @@ export const DashboardPage: React.FC = () => {
               size="small"
             />
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-              Đã dùng: {annualLeave?.usedDays ?? 2} ngày
+              Đã sử dụng: {annualLeave?.usedDays ?? 2} ngày
             </Text>
           </Card>
         </Col>
@@ -147,20 +217,20 @@ export const DashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable style={{ border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Phép ốm (Hưởng BHXH)</Text>
+              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Tỉ lệ phê duyệt thành công</Text>
               <CheckCircleOutlined style={{ color: '#10b981', fontSize: 18 }} />
             </div>
             <div style={{ margin: '10px 0 6px' }}>
               <span style={{ fontSize: 26, fontWeight: 700, color: '#10b981' }}>
-                {sickLeave?.availableDays ?? 5}
+                {approvalRate}%
               </span>
-              <span style={{ fontSize: 14, color: '#64748b', marginLeft: 4 }}>
-                / {sickLeave?.totalDays ?? 5} ngày
+              <span style={{ fontSize: 13, color: '#64748b', marginLeft: 6 }}>
+                ({approvedRequests.length}/{requests.length} đơn)
               </span>
             </div>
-            <Progress percent={100} strokeColor="#10b981" showInfo={false} size="small" />
+            <Progress percent={approvalRate} strokeColor="#10b981" showInfo={false} size="small" />
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-              Chưa sử dụng ngày nào
+              {pendingRequests.length} đơn đang đợi Quản lý xét duyệt
             </Text>
           </Card>
         </Col>
@@ -177,9 +247,14 @@ export const DashboardPage: React.FC = () => {
               </span>
               <span style={{ fontSize: 14, color: '#64748b', marginLeft: 4 }}>yêu cầu</span>
             </div>
-            <Progress percent={50} strokeColor="#f59e0b" showInfo={false} size="small" />
+            <Progress
+              percent={requests.length > 0 ? Math.round((pendingRequests.length / requests.length) * 100) : 0}
+              strokeColor="#f59e0b"
+              showInfo={false}
+              size="small"
+            />
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-              Đang đợi Trưởng nhóm xét duyệt
+              Được AI tự động đối soát điều kiện
             </Text>
           </Card>
         </Col>
@@ -187,17 +262,34 @@ export const DashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable style={{ border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Ca làm việc hôm nay</Text>
+              <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Chấm công hôm nay</Text>
               <ClockCircleOutlined style={{ color: '#0d9488', fontSize: 18 }} />
             </div>
             <div style={{ margin: '10px 0 6px' }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>
-                Ca Sáng
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#0f766e' }}>
+                {attendance?.isCheckedIn || attendance?.status === 'CHECKED_IN'
+                  ? 'Đang trong ca'
+                  : attendance?.isCheckedOut || attendance?.status === 'CHECKED_OUT'
+                  ? 'Đã hoàn thành ca'
+                  : 'Chưa điểm danh'}
               </span>
             </div>
-            <Tag color="success" style={{ margin: '4px 0 0' }}>08:30 - 17:30 (Đúng giờ)</Tag>
+            <Tag
+              color={
+                attendance?.isCheckedIn || attendance?.status === 'CHECKED_IN'
+                  ? 'processing'
+                  : attendance?.isCheckedOut || attendance?.status === 'CHECKED_OUT'
+                  ? 'success'
+                  : 'warning'
+              }
+              style={{ margin: '4px 0 0', borderRadius: 4 }}
+            >
+              {attendance?.checkInTime || attendance?.clockInTime
+                ? `Vào lúc: ${attendance.checkInTime || new Date(attendance.clockInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Ca Sáng: 08:30 - 17:30'}
+            </Tag>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-              Văn phòng chính (Tầng 4)
+              {profile?.defaultShiftName || 'Văn phòng chính (Tầng 4)'}
             </Text>
           </Card>
         </Col>
@@ -209,6 +301,7 @@ export const DashboardPage: React.FC = () => {
           <Card
             title={
               <Space>
+                <FileDoneOutlined style={{ color: '#059669' }} />
                 <span style={{ fontWeight: 600, color: '#0f172a' }}>Yêu cầu & Đơn từ gần đây</span>
               </Space>
             }
@@ -219,13 +312,26 @@ export const DashboardPage: React.FC = () => {
             }
             style={{ borderRadius: 12, border: '1px solid #e2e8f0' }}
           >
-            <Table
-              dataSource={MOCK_REQUESTS.slice(0, 4)}
-              columns={columns}
-              rowKey="id"
-              pagination={false}
-              size="middle"
-            />
+            {requests.length === 0 ? (
+              <EmptyState
+                title="Chưa có yêu cầu nào gần đây"
+                description="Khởi tạo đơn xin nghỉ phép hoặc đề xuất thay đổi ca làm việc của bạn."
+                actionText="Tạo đơn ngay"
+                onAction={() => navigate('/requests')}
+              />
+            ) : (
+              <Table
+                dataSource={requests.slice(0, 5)}
+                columns={columns}
+                rowKey="id"
+                pagination={false}
+                size="middle"
+                onRow={() => ({
+                  onClick: () => navigate('/requests'),
+                  style: { cursor: 'pointer' },
+                })}
+              />
+            )}
           </Card>
         </Col>
 
@@ -244,7 +350,7 @@ export const DashboardPage: React.FC = () => {
               showIcon
               icon={<CheckCircleOutlined style={{ color: '#059669' }} />}
               message="Chấm công hôm nay hợp lệ"
-              description="Bạn đã ghi nhận lượt quẹt thẻ lúc 08:24 sáng nay (sớm 6 phút trước giờ quy chuẩn)."
+              description="Hệ thống ghi nhận trạng thái chấm công đúng giờ của bạn theo quy chuẩn doanh nghiệp."
               style={{
                 marginBottom: 16,
                 background: '#f0fdf4',
@@ -257,8 +363,8 @@ export const DashboardPage: React.FC = () => {
               type="info"
               showIcon
               icon={<ThunderboltOutlined style={{ color: '#0d9488' }} />}
-              message="Chính sách nghỉ lễ & Chuyển phép"
-              description="Quy chế công ty: Đơn xin nghỉ từ 3 ngày trở lên cần nộp trước tối thiểu 5 ngày làm việc."
+              message="Chính sách nghỉ phép & Thời hạn báo trước"
+              description="Quy chế công ty: Đơn xin nghỉ phép từ 3 ngày làm việc trở lên cần nộp trước tối thiểu 5 ngày làm việc."
               style={{
                 marginBottom: 20,
                 background: '#f0fdfa',
@@ -269,18 +375,18 @@ export const DashboardPage: React.FC = () => {
 
             <div
               style={{
-                background: '#f8fafc',
-                padding: '16px',
+                background: 'linear-gradient(135deg, #f8fafc 0%, #f0fdf4 100%)',
+                padding: '20px 16px',
                 borderRadius: 10,
-                border: '1px dashed #cbd5e1',
+                border: '1px dashed #a7f3d0',
                 textAlign: 'center',
               }}
             >
               <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>
                 Cần hỗ trợ tạo đơn hoặc tra cứu chính sách?
               </div>
-              <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-                Trợ lý AI có thể tự động điền đơn nháp và kiểm tra số dư phép cho bạn.
+              <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 14 }}>
+                Trợ lý AI sẵn sàng trả lời quy định công ty và hỗ trợ lập đơn nháp tự động.
               </Text>
               <Button
                 type="primary"
@@ -289,7 +395,9 @@ export const DashboardPage: React.FC = () => {
                 style={{
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   border: 0,
-                  boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                  borderRadius: 8,
+                  fontWeight: 500,
                 }}
               >
                 Mở cuộc hội thoại với AI

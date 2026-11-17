@@ -1,0 +1,15 @@
+{
+  "id": "leave-03-not-pending",
+  "description": "Đơn đã được duyệt trước đó: AI không đánh giá lại, không gọi LLM",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "status": "APPROVED"
+  },
+  "llm": {
+    "error": "LLM must not be called"
+  },
+  "expected": {
+    "action": "SKIP"
+  }
+}

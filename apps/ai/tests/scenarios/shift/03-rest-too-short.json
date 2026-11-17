@@ -1,0 +1,61 @@
+{
+  "id": "shift-03-rest-too-short",
+  "description": "Thứ 5 làm ca chiều tới 22:00, thứ 6 xin ca sáng 06:00: chỉ nghỉ 8 giờ",
+  "today": "2026-10-19",
+  "live": true,
+  "employees": [
+    {
+      "id": "emp-201",
+      "fullName": "Tran Thi B",
+      "email": "b@example.com"
+    },
+    {
+      "id": "emp-202",
+      "fullName": "Le Van C",
+      "email": "c@example.com"
+    }
+  ],
+  "request": {
+    "type": "SHIFT_CHANGE",
+    "payload": {
+      "shiftDate": "2026-10-23",
+      "targetShiftId": "tpl-morning",
+      "reason": "Muốn về sớm chiều thứ 6 đón con"
+    }
+  },
+  "schedules": [
+    {
+      "employeeId": "emp-001",
+      "date": "2026-10-22T00:00:00.000Z",
+      "shiftStart": "2026-10-22T07:00:00.000Z",
+      "shiftEnd": "2026-10-22T15:00:00.000Z"
+    },
+    {
+      "employeeId": "emp-201",
+      "date": "2026-10-23T00:00:00.000Z",
+      "shiftStart": "2026-10-23T01:30:00.000Z",
+      "shiftEnd": "2026-10-23T10:30:00.000Z"
+    },
+    {
+      "employeeId": "emp-202",
+      "date": "2026-10-23T00:00:00.000Z",
+      "shiftStart": "2026-10-23T01:30:00.000Z",
+      "shiftEnd": "2026-10-23T10:30:00.000Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.88,
+    "policy_refs": [
+      "SHIFT.NOTICE_HOURS",
+      "SHIFT.MIN_REST_HOURS"
+    ],
+    "rationale": "Lý do gia đình hợp lý.",
+    "employee_message": "Đơn đổi ca của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Chỉ nghỉ 8 giờ"
+  }
+}

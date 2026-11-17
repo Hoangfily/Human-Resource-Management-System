@@ -1,0 +1,21 @@
+{
+  "id": "chat-23-draft-attendance-no-year",
+  "description": "Ngày đã qua không ghi năm: năm nay, không phải năm sau",
+  "today": "2026-10-19",
+  "turns": [
+    "Ngày 16/10 tôi quên chấm công vào, tôi đến lúc 8h20 vì kẹt xe"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "ATTENDANCE_EXPLANATION",
+      "payload": {
+        "date": "2026-10-16",
+        "issue": "MISSING_CLOCK_IN",
+        "requestedTime": "08:20"
+      }
+    }
+  }
+}

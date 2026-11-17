@@ -10,6 +10,7 @@ export interface User {
   positionId?: string;
   positionName?: string;
   avatarUrl?: string;
+  mustChangePassword?: boolean; // Mật khẩu do HR/Admin cấp: phải đổi trước khi dùng hệ thống
 }
 
 export interface EmployeeProfile extends User {
@@ -34,5 +35,5 @@ export interface AuthResponse {
 
 export interface LoginCredentials {
   email: string;
-  password?: string;
+  password: string;
 }

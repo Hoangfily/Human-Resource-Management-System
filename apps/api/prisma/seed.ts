@@ -1,0 +1,606 @@
+import {
+  AutonomyLevel,
+  EmployeeStatus,
+  PrismaClient,
+  RequestType,
+  Role,
+} from '@prisma/client';
+import { hashSync } from 'bcryptjs';
+
+try {
+  process.loadEnvFile(); // apps/api/.env (npm chạy script với thư mục hiện tại là apps/api); biến đã đặt sẵn không bị ghi đè
+} catch {
+  /* Không có .env: dùng biến môi trường của tiến trình */
+}
+
+const prisma = new PrismaClient();
+
+// Tài khoản mẫu chỉ dành cho máy phát triển. Production không có mật khẩu mặc định:
+// các tài khoản này bị khóa (RESIGNED, không có mật khẩu) trừ khi cố ý đặt SEED_DEMO=1 và SEED_PASSWORD.
+const isProduction = process.env.NODE_ENV === 'production';
+const demoEnabled = !isProduction || process.env.SEED_DEMO === '1';
+const demoPassword = process.env.SEED_PASSWORD || (isProduction ? '' : 'Demo@12345');
+
+async function main() {
+  console.log('--- Đang bắt đầu nạp dữ liệu mẫu (Seeding Database) ---');
+
+  // 1. Tạo các Phòng ban (Departments)
+  const itDept = await prisma.department.upsert({
+    where: { name: 'Phòng Công nghệ Thông tin' },
+    update: {},
+    create: {
+      name: 'Phòng Công nghệ Thông tin',
+      description: 'Phát triển phần mềm, hạ tầng kỹ thuật và giải pháp AI',
+    },
+  });
+
+  const hrDept = await prisma.department.upsert({
+    where: { name: 'Phòng Nhân sự' },
+    update: {},
+    create: {
+      name: 'Phòng Nhân sự',
+      description: 'Quản trị nhân tài, chính sách đãi ngộ và quan hệ lao động',
+    },
+  });
+
+  // 2. Tạo các Chức danh (Positions)
+  const devPos = await prisma.position.upsert({
+    where: { title: 'Kỹ sư phần mềm' },
+    update: {},
+    create: { title: 'Kỹ sư phần mềm' },
+  });
+
+  const leadPos = await prisma.position.upsert({
+    where: { title: 'Trưởng nhóm Kỹ thuật' },
+    update: {},
+    create: { title: 'Trưởng nhóm Kỹ thuật' },
+  });
+
+  const hrLeadPos = await prisma.position.upsert({
+    where: { title: 'Trưởng phòng Nhân sự' },
+    update: {},
+    create: { title: 'Trưởng phòng Nhân sự' },
+  });
+
+  const adminPos = await prisma.position.upsert({
+    where: { title: 'Quản trị viên Hệ thống' },
+    update: {},
+    create: { title: 'Quản trị viên Hệ thống' },
+  });
+
+  // 3. Tạo Mẫu ca làm việc mặc định (ShiftTemplate)
+  const standardShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca hành chính tiêu chuẩn' },
+    update: {},
+    create: {
+      name: 'Ca hành chính tiêu chuẩn',
+      startTime: '08:30',
+      endTime: '17:30',
+    },
+  });
+
+  const morningShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Sáng (08:30 - 17:30)' },
+    update: { startTime: '08:30', endTime: '17:30' },
+    create: {
+      name: 'Ca Sáng (08:30 - 17:30)',
+      startTime: '08:30',
+      endTime: '17:30',
+    },
+  });
+
+  const afternoonShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Chiều (13:00 - 21:00)' },
+    update: { startTime: '13:00', endTime: '21:00' },
+    create: {
+      name: 'Ca Chiều (13:00 - 21:00)',
+      startTime: '13:00',
+      endTime: '21:00',
+    },
+  });
+
+  const nightShift = await prisma.shiftTemplate.upsert({
+    where: { name: 'Ca Đêm (21:00 - 05:00)' },
+    update: { startTime: '21:00', endTime: '05:00' },
+    create: {
+      name: 'Ca Đêm (21:00 - 05:00)',
+      startTime: '21:00',
+      endTime: '05:00',
+    },
+  });
+
+  // 5. Tạo Danh mục Loại nghỉ phép (Leave Types)
+  const leaveTypesData = [
+    { code: 'ANNUAL', name: 'Nghỉ phép năm' },
+    { code: 'SICK', name: 'Nghỉ ốm đau / Khám bệnh' },
+    { code: 'UNPAID', name: 'Nghỉ không lương' },
+    { code: 'PERSONAL', name: 'Nghỉ việc riêng có lương' },
+  ];
+
+  const createdLeaveTypes: Record<string, string> = {};
+  for (const lt of leaveTypesData) {
+    const item = await prisma.leaveType.upsert({
+      where: { code: lt.code },
+      update: {},
+      create: lt,
+    });
+    createdLeaveTypes[lt.code] = item.id;
+  }
+
+  // 7. Cấu hình Mức tự chủ AI mặc định (AutonomyConfig per RequestType)
+  // Máy phát triển: AI tự quyết đơn rủi ro thấp để demo. Production: chỉ đề xuất cho tới khi quản trị viên bật
+  // (Agent settings) sau khi đã đối chiếu quyết định của AI với quyết định của người duyệt.
+  const autonomyDefaults = [
+    { requestType: RequestType.LEAVE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
+    { requestType: RequestType.OVERTIME, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
+    { requestType: RequestType.ATTENDANCE_EXPLANATION, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
+    { requestType: RequestType.SHIFT_CHANGE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
+  ];
+  for (const config of autonomyDefaults) {
+    await prisma.autonomyConfig.upsert({
+      where: { requestType: config.requestType },
+      update: {},
+      create: {
+        requestType: config.requestType,
+        level: isProduction ? AutonomyLevel.SUGGEST_ONLY : config.level,
+        minConfidence: 0.85,
+      },
+    });
+  }
+
+  // 8. Nạp Quy chế nội bộ chuẩn theo docs/03-policy.md (Company Policies)
+  const policies = [
+    {
+      key: 'LEAVE.ANNUAL_DAYS_PER_YEAR',
+      version: '2026.10-draft',
+      title: 'Số ngày phép năm tiêu chuẩn',
+      content: 'Mỗi nhân viên chính thức có tiêu chuẩn 12 ngày phép năm hưởng nguyên lương. Cứ mỗi 5 năm làm việc được cộng thêm 1 ngày.',
+    },
+    {
+      key: 'LEAVE.NOTICE_DAYS',
+      version: '2026.10-draft',
+      title: 'Thời hạn báo trước khi nghỉ phép',
+      content: 'Nghỉ 1-2 ngày phải nộp đơn trước ít nhất 3 ngày làm việc. Nghỉ trên 2 ngày liên tiếp phải nộp đơn trước ít nhất 7 ngày làm việc.',
+    },
+    {
+      key: 'LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS',
+      version: '2026.10-draft',
+      title: 'Yêu cầu giấy khám bệnh khi nghỉ ốm',
+      content: 'Nghỉ ốm trên 2 ngày làm việc liên tiếp bắt buộc đính kèm giấy chứng nhận nghỉ việc hưởng BHXH của cơ sở khám chữa bệnh.',
+    },
+    {
+      key: 'LEAVE.PERSONAL_DAYS',
+      version: '2026.10-draft',
+      title: 'Chế độ nghỉ việc riêng có lương',
+      content: 'Bản thân kết hôn: 3 ngày; Con kết hôn: 1 ngày; Tứ thân phụ mẫu/vợ/chồng/con mất: 3 ngày.',
+    },
+    {
+      key: 'OT.MAX_HOURS_PER_MONTH',
+      version: '2026.10-draft',
+      title: 'Giờ làm thêm tối đa trong tháng',
+      content: 'Tổng số giờ làm thêm tối đa không quá 40 giờ trong một tháng và không quá 200 giờ trong một năm.',
+    },
+    {
+      key: 'OT.MAX_TOTAL_HOURS_PER_DAY',
+      version: '2026.10-draft',
+      title: 'Tổng giờ làm việc tối đa trong ngày',
+      content: 'Tổng giờ làm việc tiêu chuẩn + làm thêm giờ không được vượt quá 12 giờ/ngày.',
+    },
+    {
+      key: 'ATTENDANCE.EXPLAIN_WITHIN_DAYS',
+      version: '2026.10-draft',
+      title: 'Thời hạn nộp giải trình chấm công',
+      content: 'Nhân viên quên quẹt thẻ, quẹt muộn do sự cố hệ thống phải gửi đơn giải trình trong vòng 3 ngày làm việc kể từ ngày phát sinh.',
+    },
+    {
+      key: 'ATTENDANCE.MAX_AUTO_PER_MONTH',
+      version: '2026.10-draft',
+      title: 'Hạn mức giải trình tự động trong tháng',
+      content: 'Tối đa 3 lần giải trình tự động/tháng được AI xem xét. Vượt quá 3 lần đơn sẽ bị chuyển sang cấp thẩm định.',
+    },
+    {
+      key: 'ATTENDANCE.GRACE_PERIOD_MINUTES',
+      version: '2026.10-draft',
+      title: 'Thời gian ân hạn đi muộn',
+      content: 'Thời gian ân hạn tối đa cho phép đến muộn là 15 phút mỗi ca làm việc.',
+    },
+  ];
+
+  for (const pol of policies) {
+    await prisma.companyPolicy.upsert({
+      where: {
+        key_version: {
+          key: pol.key,
+          version: pol.version,
+        },
+      },
+      update: {},
+      create: pol,
+    });
+  }
+
+  // ---- Dữ liệu tham chiếu ở trên (phòng ban, chức danh, ca, loại nghỉ, quy chế, mức tự chủ AI): luôn nạp, chạy lại an toàn.
+  // ---- Dữ liệu mẫu ở dưới (nhân viên, quỹ phép, lịch ca): chỉ khi không phải production.
+  const DEMO_EMAILS = [
+    'admin@gmail.com',
+    'tiendung@gmail.com',
+    'minhphong@gmail.com',
+    'huyhoang@gmail.com',
+    'dothilan@gmail.com',
+    'tranvannam@gmail.com',
+    'hoangminhtuan@gmail.com',
+  ];
+  if (!demoEnabled) {
+    // Nếu DB từng được nạp dữ liệu mẫu (vd: seed ở máy dev rồi chuyển DB): khóa các tài khoản đó
+    const locked = await prisma.employee.updateMany({
+      where: { email: { in: DEMO_EMAILS } },
+      data: { passwordHash: null, status: EmployeeStatus.RESIGNED },
+    });
+    console.log(`NODE_ENV=production: đã nạp dữ liệu tham chiếu (${policies.length} quy chế, mức tự chủ AI = chỉ đề xuất).`);
+    console.log(`Không tạo nhân viên mẫu${locked.count ? `; đã khóa ${locked.count} tài khoản mẫu có sẵn` : ''}. Tạo quản trị viên đầu tiên: npm run admin:create`);
+    return;
+  }
+
+  // 4. Tạo các Nhân viên nòng cốt
+  // 4.1 Quản trị viên cao cấp - Admin
+  const admin = await prisma.employee.upsert({
+    where: { email: 'admin@gmail.com' },
+    update: {
+      fullName: 'Admin',
+    },
+    create: {
+      email: 'admin@gmail.com',
+      fullName: 'Admin',
+      phone: '0900000001',
+      role: Role.ADMIN,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: hrDept.id,
+      positionId: adminPos.id,
+      defaultShiftId: standardShift.id,
+    },
+  });
+
+  // 4.2 Quản lý trực tiếp (Manager) - Nguyễn Tiến Dũng
+  const manager = await prisma.employee.upsert({
+    where: { email: 'tiendung@gmail.com' },
+    update: {
+      fullName: 'Nguyễn Tiến Dũng',
+    },
+    create: {
+      email: 'tiendung@gmail.com',
+      fullName: 'Nguyễn Tiến Dũng',
+      phone: '0912345678',
+      role: Role.MANAGER,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: leadPos.id,
+      defaultShiftId: standardShift.id,
+    },
+  });
+
+  // 4.3 Nhân viên cấp dưới (Employee) - Phạm Minh Phong (Quản lý là Nguyễn Tiến Dũng)
+  const employee = await prisma.employee.upsert({
+    where: { email: 'minhphong@gmail.com' },
+    update: {
+      fullName: 'Phạm Minh Phong',
+      managerId: manager.id,
+    },
+    create: {
+      email: 'minhphong@gmail.com',
+      fullName: 'Phạm Minh Phong',
+      phone: '0987654321',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: standardShift.id,
+    },
+  });
+
+  // 4.4 Quản trị viên HR - Nguyễn Huy Hoàng
+  const hrAdmin = await prisma.employee.upsert({
+    where: { email: 'huyhoang@gmail.com' },
+    update: {
+      fullName: 'Nguyễn Huy Hoàng',
+    },
+    create: {
+      email: 'huyhoang@gmail.com',
+      fullName: 'Nguyễn Huy Hoàng',
+      phone: '0901234567',
+      role: Role.HR,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: hrDept.id,
+      positionId: hrLeadPos.id,
+      defaultShiftId: standardShift.id,
+    },
+  });
+
+  // 4.5 Các nhân viên kỹ thuật đồng nghiệp (Phòng Công nghệ Thông tin)
+  const colleagueLan = await prisma.employee.upsert({
+    where: { email: 'dothilan@gmail.com' },
+    update: { fullName: 'Đỗ Thị Lan', managerId: manager.id },
+    create: {
+      email: 'dothilan@gmail.com',
+      fullName: 'Đỗ Thị Lan',
+      phone: '0981112233',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: morningShift.id,
+    },
+  });
+
+  const colleagueNam = await prisma.employee.upsert({
+    where: { email: 'tranvannam@gmail.com' },
+    update: { fullName: 'Trần Văn Nam', managerId: manager.id },
+    create: {
+      email: 'tranvannam@gmail.com',
+      fullName: 'Trần Văn Nam',
+      phone: '0982223344',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: afternoonShift.id,
+    },
+  });
+
+  const colleagueTuan = await prisma.employee.upsert({
+    where: { email: 'hoangminhtuan@gmail.com' },
+    update: { fullName: 'Hoàng Minh Tuấn', managerId: manager.id },
+    create: {
+      email: 'hoangminhtuan@gmail.com',
+      fullName: 'Hoàng Minh Tuấn',
+      phone: '0983334455',
+      role: Role.EMPLOYEE,
+      status: EmployeeStatus.ACTIVE,
+      departmentId: itDept.id,
+      positionId: devPos.id,
+      managerId: manager.id,
+      defaultShiftId: morningShift.id,
+    },
+  });
+
+  // 4.6 Mật khẩu cho các tài khoản mẫu
+  const demoIds = [admin, manager, employee, hrAdmin, colleagueLan, colleagueNam, colleagueTuan].map((e) => e.id);
+  if (demoPassword.length < 10) {
+    throw new Error('SEED_PASSWORD phải có ít nhất 10 ký tự');
+  }
+  await prisma.employee.updateMany({
+    where: { id: { in: demoIds } },
+    data: {
+      passwordHash: hashSync(demoPassword, 12),
+      mustChangePassword: isProduction, // Máy phát triển vào thẳng; SEED_DEMO=1 trên production vẫn bắt buộc đổi
+      failedLoginCount: 0,
+      lockedUntil: null,
+    },
+  });
+
+  // 6. Cấp Quỹ ngày phép năm 2026 (Leave Balances)
+  // An Nguyễn: 12 ngày phép năm, đã dùng 2, khả dụng 10 ngày
+  if (createdLeaveTypes['ANNUAL']) {
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_leaveTypeId_year: {
+          employeeId: employee.id,
+          leaveTypeId: createdLeaveTypes['ANNUAL'],
+          year: 2026,
+        },
+      },
+      update: { totalDays: 12, usedDays: 2, pendingDays: 0 },
+      create: {
+        employeeId: employee.id,
+        leaveTypeId: createdLeaveTypes['ANNUAL'],
+        year: 2026,
+        totalDays: 12,
+        usedDays: 2,
+        pendingDays: 0,
+      },
+    });
+
+    // Quản lý Bích Trần: 15 ngày phép năm
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_leaveTypeId_year: {
+          employeeId: manager.id,
+          leaveTypeId: createdLeaveTypes['ANNUAL'],
+          year: 2026,
+        },
+      },
+      update: { totalDays: 15, usedDays: 3, pendingDays: 0 },
+      create: {
+        employeeId: manager.id,
+        leaveTypeId: createdLeaveTypes['ANNUAL'],
+        year: 2026,
+        totalDays: 15,
+        usedDays: 3,
+        pendingDays: 0,
+      },
+    });
+
+    // HR Cường Lê: 14 ngày phép năm
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_leaveTypeId_year: {
+          employeeId: hrAdmin.id,
+          leaveTypeId: createdLeaveTypes['ANNUAL'],
+          year: 2026,
+        },
+      },
+      update: { totalDays: 14, usedDays: 1, pendingDays: 0 },
+      create: {
+        employeeId: hrAdmin.id,
+        leaveTypeId: createdLeaveTypes['ANNUAL'],
+        year: 2026,
+        totalDays: 14,
+        usedDays: 1,
+        pendingDays: 0,
+      },
+    });
+  }
+
+  // Cấp phép ốm (5 ngày) và phép không hưởng lương (10 ngày) cho An Nguyễn
+  if (createdLeaveTypes['SICK']) {
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_leaveTypeId_year: {
+          employeeId: employee.id,
+          leaveTypeId: createdLeaveTypes['SICK'],
+          year: 2026,
+        },
+      },
+      update: { totalDays: 5, usedDays: 0, pendingDays: 0 },
+      create: {
+        employeeId: employee.id,
+        leaveTypeId: createdLeaveTypes['SICK'],
+        year: 2026,
+        totalDays: 5,
+        usedDays: 0,
+        pendingDays: 0,
+      },
+    });
+  }
+
+  if (createdLeaveTypes['UNPAID']) {
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_leaveTypeId_year: {
+          employeeId: employee.id,
+          leaveTypeId: createdLeaveTypes['UNPAID'],
+          year: 2026,
+        },
+      },
+      update: { totalDays: 10, usedDays: 0, pendingDays: 0 },
+      create: {
+        employeeId: employee.id,
+        leaveTypeId: createdLeaveTypes['UNPAID'],
+        year: 2026,
+        totalDays: 10,
+        usedDays: 0,
+        pendingDays: 0,
+      },
+    });
+  }
+
+  // 9. Nạp Lịch phân ca làm việc (Schedules) cho toàn bộ tháng 11/2026 và các ngày quanh hiện tại
+  console.log('-> Đang tạo lịch phân ca làm việc (Schedules)...');
+  const seedSchedule = async (empId: string, dateStr: string, startTime: string, endTime: string) => {
+    const targetDate = new Date(`${dateStr}T00:00:00.000Z`);
+    const startDt = new Date(`${dateStr}T${startTime}:00+07:00`);
+    const isOvernight = endTime <= startTime;
+    let endDt: Date;
+    if (isOvernight) {
+      const nextDay = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      endDt = new Date(`${nextDay}T${endTime}:00+07:00`);
+    } else {
+      endDt = new Date(`${dateStr}T${endTime}:00+07:00`);
+    }
+
+    await prisma.schedule.upsert({
+      where: {
+        employeeId_date: {
+          employeeId: empId,
+          date: targetDate,
+        },
+      },
+      update: {
+        shiftStart: startDt,
+        shiftEnd: endDt,
+      },
+      create: {
+        employeeId: empId,
+        date: targetDate,
+        shiftStart: startDt,
+        shiftEnd: endDt,
+      },
+    });
+  };
+
+  // 9.1 Tạo lịch cho cả tháng 11/2026 (ngày 1 -> 30)
+  for (let d = 1; d <= 30; d++) {
+    const dayStr = d < 10 ? `0${d}` : `${d}`;
+    const dateStr = `2026-11-${dayStr}`;
+    const dow = new Date(`${dateStr}T00:00:00.000Z`).getUTCDay(); // 0 = CN, 1 = T2, ..., 6 = T7
+
+    if (dow === 0) {
+      // Chủ nhật: nghỉ ca
+      continue;
+    }
+
+    if (dow === 6) {
+      // Thứ Bảy: Luân phiên trực sáng cho 1 nhân viên
+      if (d % 2 === 0) {
+        await seedSchedule(colleagueTuan.id, dateStr, '08:30', '12:30');
+      } else {
+        await seedSchedule(colleagueLan.id, dateStr, '08:30', '12:30');
+      }
+      continue;
+    }
+
+    // Thứ Hai -> Thứ Sáu:
+    // Quản lý Nguyễn Tiến Dũng: Ca sáng
+    await seedSchedule(manager.id, dateStr, '08:30', '17:30');
+
+    // Nhân viên chính Phạm Minh Phong: Ca sáng (riêng Thứ Năm làm Ca chiều)
+    if (dow === 4) {
+      await seedSchedule(employee.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(employee.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Đỗ Thị Lan: T2-T4 ca sáng, T5-T6 ca chiều
+    if (dow >= 4) {
+      await seedSchedule(colleagueLan.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(colleagueLan.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Trần Văn Nam: T2-T3 ca chiều, T4-T6 ca sáng
+    if (dow <= 2) {
+      await seedSchedule(colleagueNam.id, dateStr, '13:00', '21:00');
+    } else {
+      await seedSchedule(colleagueNam.id, dateStr, '08:30', '17:30');
+    }
+
+    // Đồng nghiệp Hoàng Minh Tuấn: Ca sáng đều đặn
+    await seedSchedule(colleagueTuan.id, dateStr, '08:30', '17:30');
+  }
+
+  // 9.2 Tạo thêm lịch động cho tuần hiện tại (dựa trên new Date) nếu khác tháng 11/2026
+  const now = new Date();
+  for (let offset = -7; offset <= 14; offset++) {
+    const cur = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
+    const dateStr = cur.toISOString().slice(0, 10);
+    const dow = cur.getUTCDay();
+    if (dow !== 0 && dow !== 6) {
+      await seedSchedule(employee.id, dateStr, '08:30', '17:30');
+      await seedSchedule(manager.id, dateStr, '08:30', '17:30');
+      await seedSchedule(colleagueLan.id, dateStr, '08:30', '17:30');
+      await seedSchedule(colleagueNam.id, dateStr, '13:00', '21:00');
+      await seedSchedule(colleagueTuan.id, dateStr, '08:30', '17:30');
+    }
+  }
+
+  console.log('--- Hoàn tất nạp dữ liệu mẫu (Seeding Thành Công)! ---');
+  console.log('1. Admin:     admin@gmail.com     (Role: ADMIN)');
+  console.log('2. Manager:   tiendung@gmail.com  (Role: MANAGER, Nguyễn Tiến Dũng)');
+  console.log('3. Employee:  minhphong@gmail.com (Role: EMPLOYEE, Phạm Minh Phong, Quản lý: tiendung)');
+  console.log('4. HR Admin:  huyhoang@gmail.com  (Role: HR, Nguyễn Huy Hoàng)');
+  if (demoEnabled) {
+    console.log(`Mật khẩu các tài khoản mẫu: ${isProduction ? '(theo SEED_PASSWORD)' : demoPassword}`);
+  }
+  console.log(`Đã nạp ${policies.length} quy chuẩn chính sách công ty và quỹ ngày phép 2026.`);
+}
+
+main()
+  .catch((e) => {
+    console.error('Lỗi khi seed dữ liệu:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

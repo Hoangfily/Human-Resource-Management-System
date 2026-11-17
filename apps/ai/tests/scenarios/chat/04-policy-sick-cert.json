@@ -1,0 +1,17 @@
+{
+  "id": "chat-04-policy-sick-cert",
+  "description": "Hỏi khi nào cần giấy khám bệnh",
+  "today": "2026-10-19",
+  "turns": [
+    "Nghỉ ốm mấy ngày thì phải nộp giấy khám bệnh?"
+  ],
+  "expected": {
+    "intent": [
+      "POLICY_QUESTION"
+    ],
+    "card": null,
+    "citations_include": [
+      "LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS"
+    ]
+  }
+}

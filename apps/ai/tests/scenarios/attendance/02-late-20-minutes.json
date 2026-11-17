@@ -1,0 +1,37 @@
+{
+  "id": "att-02-late-20-minutes",
+  "description": "Đi muộn 20 phút, lý do cụ thể, chưa cần bằng chứng (dưới 30 phút)",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "LATE",
+      "explanation": "Kẹt xe do tai nạn trên cầu Sài Gòn sáng thứ 6"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T01:50:00Z"
+    },
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-16T10:35:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Muộn 20 phút, lý do cụ thể.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "APPROVE"
+  }
+}

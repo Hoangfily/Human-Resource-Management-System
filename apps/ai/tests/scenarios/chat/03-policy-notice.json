@@ -1,0 +1,17 @@
+{
+  "id": "chat-03-policy-notice",
+  "description": "Hỏi quy định báo trước",
+  "today": "2026-10-19",
+  "turns": [
+    "Nghỉ phép 2 ngày thì phải báo trước bao lâu?"
+  ],
+  "expected": {
+    "intent": [
+      "POLICY_QUESTION"
+    ],
+    "card": null,
+    "citations_include": [
+      "LEAVE.NOTICE_DAYS"
+    ]
+  }
+}

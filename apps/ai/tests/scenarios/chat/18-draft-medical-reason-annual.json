@@ -1,0 +1,20 @@
+{
+  "id": "chat-18-draft-medical-reason-annual",
+  "description": "Nói 'nghỉ phép' với lý do khám bệnh: vẫn là ANNUAL",
+  "today": "2026-10-19",
+  "turns": [
+    "Cho tôi nghỉ phép ngày 12/11 để đi khám răng định kỳ"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "LEAVE",
+      "payload": {
+        "leaveType": "ANNUAL",
+        "startDate": "2026-11-12"
+      }
+    }
+  }
+}

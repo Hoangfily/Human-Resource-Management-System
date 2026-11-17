@@ -1,0 +1,35 @@
+{
+  "id": "att-07-requested-outside-shift",
+  "description": "Đề nghị ghi giờ ra 21:00, ngoài ca 08:30-17:30 ± 60 phút",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "MISSING_CLOCK_OUT",
+      "requestedTime": "21:00",
+      "explanation": "Ở lại làm báo cáo, quên chấm ra"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T01:25:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.88,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "nằm ngoài ca"
+  }
+}

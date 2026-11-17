@@ -1,0 +1,17 @@
+{
+  "id": "chat-01-balance-annual",
+  "description": "Hỏi số ngày phép năm còn lại",
+  "today": "2026-10-19",
+  "turns": [
+    "Tôi còn bao nhiêu ngày phép năm?"
+  ],
+  "expected": {
+    "intent": [
+      "LEAVE_BALANCE"
+    ],
+    "card": null,
+    "reply_contains": [
+      "10"
+    ]
+  }
+}

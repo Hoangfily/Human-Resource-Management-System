@@ -1,0 +1,35 @@
+{
+  "id": "att-12-no-shift-on-sunday",
+  "description": "Giải trình quên chấm vào ngày chủ nhật 18/10, không có ca làm",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-18",
+      "issue": "MISSING_CLOCK_IN",
+      "requestedTime": "08:30",
+      "explanation": "Đi làm bù chủ nhật, quên chấm vào"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-18T10:30:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.85,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Không có ca làm ngày này"
+  }
+}

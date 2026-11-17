@@ -1,0 +1,72 @@
+{
+  "id": "ot-05-month-limit",
+  "description": "Đã có 38 giờ OT trong tháng, thêm 3 giờ sẽ vượt 40 giờ/tháng",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-21",
+      "startTime": "18:00",
+      "endTime": "21:00",
+      "reason": "Hỗ trợ triển khai bản phát hành 2.3 cho khách hàng, cần chạy migration ngoài giờ"
+    }
+  },
+  "history": [
+    {
+      "type": "OVERTIME",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-03",
+        "startTime": "08:00",
+        "endTime": "20:00"
+      },
+      "createdAt": "2026-10-03T01:00:00Z"
+    },
+    {
+      "type": "OVERTIME",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-10",
+        "startTime": "08:00",
+        "endTime": "20:00"
+      },
+      "createdAt": "2026-10-10T01:00:00Z"
+    },
+    {
+      "type": "OVERTIME",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-11",
+        "startTime": "08:00",
+        "endTime": "20:00"
+      },
+      "createdAt": "2026-10-11T01:00:00Z"
+    },
+    {
+      "type": "OVERTIME",
+      "status": "APPROVED",
+      "payload": {
+        "date": "2026-10-14",
+        "startTime": "18:00",
+        "endTime": "20:00"
+      },
+      "createdAt": "2026-10-14T01:00:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH",
+      "OT.MAX_TOTAL_HOURS_PER_DAY"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "Tổng OT tháng 10/2026 sẽ là 41 giờ"
+  }
+}

@@ -45,7 +45,7 @@ export const LoginPage: React.FC = () => {
     }
   }, [isAuthenticated, navigate, from]);
 
-  const onFinish = async (values: { email: string; password?: string }) => {
+  const onFinish = async (values: { email: string; password: string }) => {
     setSubmitting(true);
     try {
       const success = await login({ email: values.email, password: values.password });
@@ -55,17 +55,25 @@ export const LoginPage: React.FC = () => {
       } else {
         message.error('Đăng nhập thất bại. Vui lòng kiểm tra email hoặc mật khẩu.');
       }
-    } catch {
-      message.error('Đã xảy ra lỗi trong quá trình xác thực.');
+    } catch (err) {
+      // Thông báo thật của API: sai email/mật khẩu, tài khoản tạm khóa sau nhiều lần sai…
+      message.error((err as { message?: string })?.message || 'Đã xảy ra lỗi trong quá trình xác thực.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleQuickDemo = (roleKey: 'employee' | 'manager' | 'hrAdmin') => {
-    loginAsDemoRole(roleKey);
-    message.success('Đăng nhập tài khoản demo thành công!');
-    navigate(from, { replace: true });
+  const handleQuickDemo = async (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => {
+    setSubmitting(true);
+    try {
+      await loginAsDemoRole(roleKey);
+      message.success('Đăng nhập tài khoản thành công!');
+      navigate(from, { replace: true });
+    } catch {
+      message.error('Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -163,13 +171,16 @@ export const LoginPage: React.FC = () => {
               <Title level={3} style={{ margin: 0 }}>
                 Đăng nhập hệ thống
               </Title>
-              <Text type="secondary">Nhập email hoặc chọn nhanh tài khoản thử nghiệm bên dưới.</Text>
+              <Text type="secondary">
+                {import.meta.env.DEV
+                  ? 'Nhập email và mật khẩu, hoặc chọn nhanh tài khoản thử nghiệm bên dưới.'
+                  : 'Nhập email và mật khẩu do công ty cấp.'}
+              </Text>
             </div>
 
             <Form
               name="login_form"
               layout="vertical"
-              initialValues={{ email: 'an.nguyen@company.com' }}
               onFinish={onFinish}
               size="large"
             >
@@ -188,7 +199,6 @@ export const LoginPage: React.FC = () => {
                 name="password"
                 label="Mật khẩu"
                 rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
-                initialValue="password123"
               >
                 <Input.Password
                   prefix={<LockOutlined style={{ color: '#8c8c8c' }} />}
@@ -201,6 +211,9 @@ export const LoginPage: React.FC = () => {
               </Button>
             </Form>
 
+            {/* Đăng nhập nhanh chỉ có ở bản chạy phát triển (mật khẩu mẫu của seed); production không có */}
+            {import.meta.env.DEV && (
+              <>
             <Divider plain style={{ margin: '24px 0 16px', fontSize: 13, color: '#8c8c8c' }}>
               <ThunderboltOutlined style={{ color: '#faad14' }} /> Hoặc đăng nhập nhanh kiểm thử (Demo)
             </Divider>
@@ -216,8 +229,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <UserOutlined style={{ color: '#1677ff' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Nguyễn Văn An</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>an.nguyen@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Phạm Minh Phong</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>minhphong@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.Employee} />
@@ -233,8 +246,8 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <TeamOutlined style={{ color: '#722ed1' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Trần Thị Bích (Trưởng nhóm)</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>bich.tran@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Nguyễn Tiến Dũng (Trưởng nhóm)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>tiendung@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.Manager} />
@@ -250,22 +263,41 @@ export const LoginPage: React.FC = () => {
                   <Space>
                     <RobotOutlined style={{ color: '#fa541c' }} />
                     <div>
-                      <div style={{ fontWeight: 500 }}>Lê Hoàng Cường (Trưởng phòng HR)</div>
-                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>cuong.le@company.com</div>
+                      <div style={{ fontWeight: 500 }}>Nguyễn Huy Hoàng (Trưởng phòng HR)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>huyhoang@gmail.com</div>
                     </div>
                   </Space>
                   <RoleTag role={UserRole.HrAdmin} />
                 </div>
               </Button>
+
+              <Button
+                block
+                onClick={() => handleQuickDemo('admin')}
+                style={{ textAlign: 'left', height: 'auto', padding: '10px 14px' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <SafetyCertificateOutlined style={{ color: '#eb2f96' }} />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>Admin (Quản trị hệ thống)</div>
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>admin@gmail.com</div>
+                    </div>
+                  </Space>
+                  <RoleTag role={UserRole.Admin} />
+                </div>
+              </Button>
             </Space>
 
             <Alert
-              type="info"
+              type="success"
               showIcon
               style={{ marginTop: 20 }}
-              message="Chế độ Mock Data đang hoạt động"
-              description="Bạn có thể bấm vào bất kỳ vai trò nào ở trên để trải nghiệm giao diện phân quyền tương ứng."
+              message="Đã kết nối NestJS Backend API & PostgreSQL"
+              description="Đăng nhập xác thực JWT thật qua cơ sở dữ liệu Docker (kèm chế độ dự phòng Offline/Mock)."
             />
+              </>
+            )}
           </Col>
         </Row>
       </div>

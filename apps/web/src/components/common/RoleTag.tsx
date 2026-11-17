@@ -1,21 +1,32 @@
 import React from 'react';
 import { Tag } from 'antd';
-import { UserRole } from '@hr-agent/shared';
+import { ROLE_DISPLAY_MAP } from '../../lib/display-mappers';
 
 interface RoleTagProps {
-  role: UserRole | string;
+  role: string;
 }
 
-const roleConfig: Record<string, { color: string; label: string }> = {
-  [UserRole.Employee]: { color: 'blue', label: 'Nhân viên' },
-  [UserRole.Manager]: { color: 'purple', label: 'Quản lý' },
-  [UserRole.HrAdmin]: { color: 'volcano', label: 'Quản trị HR' },
-  [UserRole.Admin]: { color: 'magenta', label: 'Admin Hệ thống' },
-};
-
 export const RoleTag: React.FC<RoleTagProps> = ({ role }) => {
-  const config = roleConfig[role] || { color: 'default', label: role };
-  return <Tag color={config.color}>{config.label}</Tag>;
+  const meta = ROLE_DISPLAY_MAP[role?.toUpperCase()] || {
+    label: role,
+    tagColor: '#64748b',
+    color: 'default',
+  };
+
+  return (
+    <Tag
+      style={{
+        borderRadius: 6,
+        padding: '2px 8px',
+        fontWeight: 500,
+        color: meta.tagColor,
+        borderColor: meta.tagColor + '40',
+        backgroundColor: meta.tagColor + '12',
+      }}
+    >
+      {meta.label}
+    </Tag>
+  );
 };
 
 export default RoleTag;

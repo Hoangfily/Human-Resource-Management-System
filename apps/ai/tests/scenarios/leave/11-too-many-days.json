@@ -1,0 +1,29 @@
+{
+  "id": "leave-11-too-many-days",
+  "description": "Phép năm 5 ngày hợp lệ nhưng vượt giới hạn AI tự quyết 3 ngày",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "startDate": "2026-11-02",
+      "endDate": "2026-11-06",
+      "reason": "Đưa bố mẹ đi khám sức khỏe định kỳ ở Hà Nội"
+    },
+    "computed": {
+      "daysRequested": 5
+    }
+  },
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "LEAVE.NOTICE_DAYS"
+    ],
+    "rationale": "Hợp lệ, báo trước đủ.",
+    "employee_message": "Đơn nghỉ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}

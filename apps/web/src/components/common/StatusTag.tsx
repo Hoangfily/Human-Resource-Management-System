@@ -1,22 +1,54 @@
 import React from 'react';
-import { Tag } from 'antd';
-import { RequestStatus } from '@hr-agent/shared';
+import { Tag, Tooltip } from 'antd';
+import { formatRequestStatus } from '../../lib/display-mappers';
 
 interface StatusTagProps {
-  status: RequestStatus | string;
+  status: string;
+  showDot?: boolean;
 }
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  [RequestStatus.Draft]: { color: 'default', label: 'Bản nháp' },
-  [RequestStatus.Pending]: { color: 'processing', label: 'Chờ duyệt' },
-  [RequestStatus.Approved]: { color: 'success', label: 'Đã duyệt' },
-  [RequestStatus.Rejected]: { color: 'error', label: 'Bị từ chối' },
-  [RequestStatus.Cancelled]: { color: 'warning', label: 'Đã hủy' },
-};
+export const StatusTag: React.FC<StatusTagProps> = ({ status, showDot = true }) => {
+  const meta = formatRequestStatus(status);
 
-export const StatusTag: React.FC<StatusTagProps> = ({ status }) => {
-  const config = statusConfig[status] || { color: 'default', label: status };
-  return <Tag color={config.color}>{config.label}</Tag>;
+  return (
+    <Tooltip title={meta.description || meta.label}>
+      <Tag
+        style={{
+          backgroundColor: meta.bg,
+          borderColor: meta.border,
+          color: meta.tagColor,
+          fontWeight: 600,
+          fontSize: 12,
+          borderRadius: 6,
+          padding: '2px 8px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          whiteSpace: 'nowrap',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          margin: 0,
+        }}
+      >
+        {showDot && (
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              backgroundColor: meta.tagColor,
+              display: 'inline-block',
+              flexShrink: 0,
+            }}
+          />
+        )}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {meta.label}
+        </span>
+      </Tag>
+    </Tooltip>
+  );
 };
 
 export default StatusTag;

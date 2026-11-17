@@ -1,0 +1,33 @@
+{
+  "id": "leave-09-personal-wrong-reason-approve-only",
+  "description": "Như kịch bản 08 nhưng cấu hình AUTO_APPROVE_LOW_RISK: AI không được tự từ chối, phải escalate",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "payload": {
+      "leaveTypeId": "lt-personal",
+      "startDate": "2026-10-29",
+      "endDate": "2026-10-29",
+      "reason": "Đi du lịch Đà Lạt cùng bạn bè"
+    },
+    "computed": {
+      "daysRequested": 1
+    }
+  },
+  "autonomy": {
+    "LEAVE": "AUTO_APPROVE_LOW_RISK"
+  },
+  "llm": {
+    "decision": "REJECTED",
+    "risk_level": "LOW",
+    "confidence": 0.93,
+    "policy_refs": [
+      "LEAVE.PERSONAL_DAYS"
+    ],
+    "rationale": "Du lịch không thuộc nghỉ việc riêng.",
+    "employee_message": "Vui lòng dùng phép năm."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}

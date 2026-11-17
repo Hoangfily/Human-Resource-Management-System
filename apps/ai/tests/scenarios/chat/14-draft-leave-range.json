@@ -1,0 +1,21 @@
+{
+  "id": "chat-14-draft-leave-range",
+  "description": "Khoảng nhiều ngày",
+  "today": "2026-10-19",
+  "turns": [
+    "Tôi muốn nghỉ phép từ 10/11 đến 12/11 để đi du lịch cùng gia đình"
+  ],
+  "expected": {
+    "intent": [
+      "CREATE_REQUEST"
+    ],
+    "card": {
+      "requestType": "LEAVE",
+      "payload": {
+        "leaveType": "ANNUAL",
+        "startDate": "2026-11-10",
+        "endDate": "2026-11-12"
+      }
+    }
+  }
+}

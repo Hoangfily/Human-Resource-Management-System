@@ -1,0 +1,39 @@
+{
+  "id": "att-05-contradicts-clock-events",
+  "description": "Đơn báo quên chấm vào nhưng hệ thống đã có giờ vào 08:20",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "ATTENDANCE_EXPLANATION",
+    "payload": {
+      "date": "2026-10-16",
+      "issue": "MISSING_CLOCK_IN",
+      "requestedTime": "08:30",
+      "explanation": "Quên chấm công vào"
+    }
+  },
+  "events": [
+    {
+      "type": "CLOCK_IN",
+      "timestamp": "2026-10-16T01:20:00Z"
+    },
+    {
+      "type": "CLOCK_OUT",
+      "timestamp": "2026-10-16T10:35:00Z"
+    }
+  ],
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.9,
+    "policy_refs": [
+      "ATTENDANCE.EXPLAIN_WITHIN_DAYS"
+    ],
+    "rationale": "Hợp lệ.",
+    "employee_message": "Đơn giải trình chấm công của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "đã có giờ vào lúc 08:20"
+  }
+}

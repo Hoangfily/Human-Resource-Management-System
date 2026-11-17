@@ -1,0 +1,95 @@
+name: CI
+
+# Chạy cho mọi Pull Request và mỗi lần đẩy code lên api/main. Không dùng secret nào:
+# test của AI dùng LLM giả, DB chỉ là container tạm trong job.
+on:
+  pull_request:
+  push:
+    branches: [api, main]
+
+permissions:
+  contents: read
+
+# Đẩy thêm commit vào cùng PR thì hủy lần chạy cũ đang dở
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: API + Web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # Cùng phiên bản với image Docker (node:22-alpine)
+          cache: npm
+      # Chỉ package-lock.json ở gốc repo là đúng (npm workspaces). Lock lệch package.json thì bước này báo lỗi
+      - run: npm ci
+      # Client Prisma phải được sinh trước khi biên dịch API
+      - run: npm run prisma:generate
+      - run: npm run build # API (nest build) rồi Web (tsc -b && vite build)
+
+  ai:
+    name: AI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # Cùng phiên bản với image Docker (python:3.12-slim)
+          cache: pip
+          cache-dependency-path: apps/ai/requirements.txt
+      - run: pip install -r requirements.txt # Đã gồm pytest
+      - run: python -m pytest -q # Test gọi LLM thật tự bỏ qua vì không đặt RUN_LIVE_LLM
+
+  migrations:
+    name: Prisma migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hr_agent
+          POSTGRES_PASSWORD: ci-only-password # Chỉ tồn tại trong job này
+          POSTGRES_DB: hr_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hr_agent -d hr_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://hr_agent:ci-only-password@localhost:5432/hr_agent?schema=public
+      # Prisma cần một DB "bóng" để dựng lại schema từ migrations; DB postgres của container tạm là đủ
+      SHADOW_DATABASE_URL: postgresql://hr_agent:ci-only-password@localhost:5432/postgres?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - name: Migrations apply to an empty database
+        run: npm run db:migrate
+      - name: schema.prisma and migrations are in sync
+        # Mã thoát 2 = còn thay đổi schema chưa có migration: chạy `npm run db:migrate:dev -- --name <ten>` rồi commit thư mục migrations
+        run: >-
+          npx prisma migrate diff
+          --from-migrations apps/api/prisma/migrations
+          --to-schema-datamodel apps/api/prisma/schema.prisma
+          --shadow-database-url "$SHADOW_DATABASE_URL"
+          --exit-code
+      - name: Seed runs in development mode
+        run: npm run seed:api
+      - name: Seed runs in production mode (reference data only)
+        run: NODE_ENV=production npm run seed:api

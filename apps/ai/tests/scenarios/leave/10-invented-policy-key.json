@@ -1,0 +1,19 @@
+{
+  "id": "leave-10-invented-policy-key",
+  "description": "LLM trích một policy key không tồn tại (kiểm tra guard)",
+  "today": "2026-10-19",
+  "live": false,
+  "llm": {
+    "decision": "APPROVED",
+    "risk_level": "LOW",
+    "confidence": 0.95,
+    "policy_refs": [
+      "LEAVE.ANNUAL_BALANCE"
+    ],
+    "rationale": "Đủ phép.",
+    "employee_message": "Đơn nghỉ của bạn đã được duyệt."
+  },
+  "expected": {
+    "action": "ESCALATE"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "ot-06-vague-reason",
+  "description": "Lý do chỉ ghi 'làm thêm': không đánh giá được nhu cầu công việc",
+  "today": "2026-10-19",
+  "live": true,
+  "request": {
+    "type": "OVERTIME",
+    "payload": {
+      "date": "2026-10-21",
+      "startTime": "18:00",
+      "endTime": "20:00",
+      "reason": "làm thêm"
+    }
+  },
+  "llm": {
+    "decision": "ESCALATED",
+    "risk_level": "MEDIUM",
+    "confidence": 0.75,
+    "policy_refs": [
+      "OT.MAX_HOURS_PER_MONTH"
+    ],
+    "rationale": "Lý do không nêu công việc cụ thể.",
+    "employee_message": "Đơn làm thêm giờ của bạn đã được chuyển cho quản lý xem xét."
+  },
+  "expected": {
+    "action": "ESCALATE",
+    "reason_contains": "AI đề xuất chuyển"
+  }
+}
