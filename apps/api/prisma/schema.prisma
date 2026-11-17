@@ -108,7 +108,14 @@ model Employee {
   role         Role     @default(EMPLOYEE)
   status       EmployeeStatus @default(ACTIVE)
   joinDate     DateTime?
-  
+
+  // Đăng nhập bằng mật khẩu (bcrypt). Không có hash thì không đăng nhập được.
+  passwordHash       String?
+  mustChangePassword Boolean   @default(true) // Mật khẩu do HR/Admin cấp: phải đổi ở lần đăng nhập đầu
+  passwordChangedAt  DateTime?
+  failedLoginCount   Int       @default(0)    // Số lần sai liên tiếp; đủ ngưỡng thì khóa tạm
+  lockedUntil        DateTime?
+
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
   

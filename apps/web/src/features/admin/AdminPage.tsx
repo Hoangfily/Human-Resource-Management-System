@@ -19,6 +19,8 @@ import {
   Spin,
   DatePicker,
   Divider,
+  Popconfirm,
+  Typography as AntTypography,
 } from 'antd';
 import {
   PlusOutlined,
@@ -36,6 +38,7 @@ import {
 import dayjs from 'dayjs';
 import apiClient from '../../lib/api-client';
 import { RoleTag } from '../../components/common';
+import { useAuth } from '../auth/AuthContext';
 import { POLICY_DISPLAY_MAP } from '../../lib/display-mappers';
 
 const { Title, Text } = Typography;
@@ -54,7 +57,8 @@ const AUDIT_ACTION_MAP: Record<string, { label: string; color: string }> = {
 };
 
 export const AdminPage: React.FC = () => {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
+  const { user: currentUser } = useAuth();
 
   // State dữ liệu chính
   const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
@@ -184,11 +188,47 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  // Mật khẩu tạm chỉ hiện đúng một lần: API không lưu dạng rõ và không ghi vào nhật ký
+  const showTemporaryPassword = (email: string, temporaryPassword?: string) => {
+    if (!temporaryPassword) return;
+    modal.success({
+      title: 'Mật khẩu tạm của nhân viên',
+      width: 480,
+      okText: 'Đã ghi lại',
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>
+            Tài khoản <strong>{email}</strong>
+          </p>
+          <AntTypography.Paragraph copyable={{ text: temporaryPassword }} style={{ fontSize: 20, fontFamily: 'monospace', marginBottom: 12 }}>
+            {temporaryPassword}
+          </AntTypography.Paragraph>
+          <p style={{ color: '#b45309', marginBottom: 0 }}>
+            Mật khẩu này chỉ hiện một lần. Hãy gửi cho nhân viên qua kênh an toàn; họ phải đổi mật khẩu ngay ở lần đăng nhập đầu tiên.
+          </p>
+        </div>
+      ),
+    });
+  };
+
+  // HR/Admin cấp lại mật khẩu tạm (quên mật khẩu, tài khoản bị khóa…)
+  const handleResetPassword = async (record: any) => {
+    try {
+      const res = (await apiClient.post(`/employees/${record.id}/reset-password`)) as unknown as {
+        temporaryPassword?: string;
+      };
+      showTemporaryPassword(record.email, res.temporaryPassword);
+      await fetchAuditLogs();
+    } catch (err: any) {
+      message.error(err?.message || 'Không thể cấp lại mật khẩu.');
+    }
+  };
+
   // Thêm nhân viên mới
   const handleCreateEmployee = async (values: any) => {
     setSavingEmployee(true);
     try {
-      await apiClient.post('/employees', {
+      const created = (await apiClient.post('/employees', {
         fullName: values.fullName,
         email: values.email,
         phone: values.phone,
@@ -199,9 +239,10 @@ export const AdminPage: React.FC = () => {
         managerId: values.managerId,
         defaultShiftId: values.defaultShiftId,
         joinDate: values.joinDate ? values.joinDate.format('YYYY-MM-DD') : undefined,
-      });
+      })) as unknown as { temporaryPassword?: string };
 
       message.success(`Đã thêm mới nhân sự "${values.fullName}" thành công! Quỹ phép năm đã được cấp phát tự động.`);
+      showTemporaryPassword(values.email, created.temporaryPassword);
       setIsAddEmployeeOpen(false);
       addEmployeeForm.resetFields();
       await Promise.all([fetchEmployees(), fetchAuditLogs()]);
@@ -309,6 +350,30 @@ export const AdminPage: React.FC = () => {
           {status === 'ACTIVE' ? 'Chính thức' : status === 'ON_PROBATION' ? 'Thử việc' : 'Nghỉ việc'}
         </Tag>
       ),
+    },
+    {
+      title: 'Mật khẩu',
+      key: 'password',
+      render: (_: unknown, record: any) => {
+        // Khớp luật của API: HR chỉ cấp lại cho EMPLOYEE/MANAGER; không tự cấp lại cho chính mình (dùng Đổi mật khẩu)
+        const isSelf = record.id === currentUser?.id;
+        const privileged = record.role === 'ADMIN' || record.role === 'HR';
+        const allowed = !isSelf && (currentUser?.role === 'ADMIN' || !privileged);
+        return (
+          <Popconfirm
+            title={`Cấp lại mật khẩu cho ${record.fullName}?`}
+            description="Mật khẩu cũ mất hiệu lực và mọi thiết bị của họ bị đăng xuất."
+            okText="Cấp lại"
+            cancelText="Hủy"
+            disabled={!allowed}
+            onConfirm={() => handleResetPassword(record)}
+          >
+            <Button size="small" disabled={!allowed || record.status === 'RESIGNED'}>
+              Cấp lại
+            </Button>
+          </Popconfirm>
+        );
+      },
     },
   ];
 

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { currentYear } from '../../common/utils/company-date';
+import { generateTemporaryPassword, hashPassword } from '../auth/password.util';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 
@@ -23,6 +24,12 @@ export class UsersService {
       );
     }
 
+    // HR chỉ tạo được EMPLOYEE/MANAGER: nếu không, HR tự tạo tài khoản ADMIN rồi đăng nhập bằng mật khẩu tạm trả về
+    const newRole = dto.role || 'EMPLOYEE';
+    if ((newRole === 'ADMIN' || newRole === 'HR') && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('Chỉ Quản trị viên (ADMIN) mới được tạo tài khoản HR hoặc ADMIN');
+    }
+
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.employee.findUnique({
       where: { email },
@@ -31,14 +38,19 @@ export class UsersService {
       throw new BadRequestException(`Email "${email}" đã tồn tại trong hệ thống`);
     }
 
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+
     const employee = await this.prisma.$transaction(async (tx) => {
       const created = await tx.employee.create({
         data: {
           email,
           fullName: dto.fullName.trim(),
           phone: dto.phone?.trim() || null,
-          role: (dto.role as any) || 'EMPLOYEE',
+          role: newRole as any,
           status: (dto.status as any) || 'ACTIVE',
+          passwordHash,
+          mustChangePassword: true, // Mật khẩu tạm: nhân viên phải đổi ở lần đăng nhập đầu
           departmentId: dto.departmentId || null,
           positionId: dto.positionId || null,
           managerId: dto.managerId || null,
@@ -86,7 +98,53 @@ export class UsersService {
       return created;
     });
 
-    return this.getProfile(employee.id);
+    // Mật khẩu tạm chỉ hiện ở đây một lần: không lưu dạng rõ ở đâu, không ghi vào nhật ký
+    return { ...(await this.getProfile(employee.id)), temporaryPassword };
+  }
+
+  /** HR/Admin cấp lại mật khẩu tạm cho một nhân viên (quên mật khẩu, bị khóa…). */
+  async resetPassword(caller: { id: string; role: string }, targetId: string) {
+    if (caller.role !== 'ADMIN' && caller.role !== 'HR') {
+      throw new ForbiddenException('Chỉ Quản trị viên (ADMIN) hoặc Nhân sự (HR) mới được cấp lại mật khẩu');
+    }
+    const target = await this.prisma.employee.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Không tìm thấy nhân viên');
+    }
+    if (target.id === caller.id) {
+      throw new BadRequestException('Hãy dùng chức năng Đổi mật khẩu cho tài khoản của chính bạn');
+    }
+    // Nếu HR đặt lại được mật khẩu của ADMIN thì HR chiếm được tài khoản ADMIN
+    if ((target.role === 'ADMIN' || target.role === 'HR') && caller.role !== 'ADMIN') {
+      throw new ForbiddenException('Chỉ Quản trị viên (ADMIN) mới được cấp lại mật khẩu của HR hoặc ADMIN');
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id: target.id },
+        data: {
+          passwordHash,
+          mustChangePassword: true,
+          failedLoginCount: 0,
+          lockedUntil: null,
+        },
+      }),
+      this.prisma.refreshSession.deleteMany({ where: { employeeId: target.id } }), // Đăng xuất mọi thiết bị
+      this.prisma.auditLog.create({
+        data: {
+          actorType: 'HUMAN',
+          actorId: caller.id,
+          action: 'RESET_PASSWORD',
+          entityType: 'Employee',
+          entityId: target.id,
+          payload: { email: target.email }, // Không ghi mật khẩu vào nhật ký
+        },
+      }),
+    ]);
+
+    return { employeeId: target.id, email: target.email, temporaryPassword, mustChangePassword: true };
   }
 
   async getProfile(employeeId: string) {

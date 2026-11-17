@@ -22,6 +22,7 @@ import {
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { UserRole } from '@hr-agent/shared';
 import { useAuth } from '../features/auth/AuthContext';
@@ -100,6 +101,12 @@ export const MainLayout: React.FC = () => {
         ),
       },
       { type: 'divider' as const },
+      {
+        key: 'change-password',
+        label: 'Đổi mật khẩu',
+        icon: <LockOutlined />,
+        onClick: () => navigate('/change-password'),
+      },
       {
         key: 'switch-account',
         label: 'Đổi tài khoản đăng nhập',

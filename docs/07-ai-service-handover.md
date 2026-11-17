@@ -246,7 +246,7 @@ npm run dev:web
 
 ## 5. TÀI KHOẢN MẪU KIỂM THỬ (TEST ACCOUNTS)
 
-Tạo bởi `npm run seed:api` (`apps/api/prisma/seed.ts`):
+Tạo bởi `npm run seed:api` (`apps/api/prisma/seed.ts`). Đăng nhập bằng email và mật khẩu; mật khẩu mẫu ở môi trường phát triển là `Demo@12345` (đổi bằng `SEED_PASSWORD`). Các script thử gọi API phải gửi `{ "email", "password" }` tới `POST /api/v1/auth/login`.
 
 | Vai trò | Email đăng nhập | Mô tả & Thẩm quyền |
 |---|---|---|

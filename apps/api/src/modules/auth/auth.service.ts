@@ -1,9 +1,27 @@
 import { randomUUID } from 'crypto';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { jwtSecret } from './jwt-secrets';
+import { LOCK_MINUTES, MAX_FAILED_LOGINS, hashPassword, verifyPassword } from './password.util';
+
+// Một thông báo duy nhất cho email không tồn tại, sai mật khẩu, tài khoản nghỉ việc hoặc chưa có mật khẩu:
+// không để người ngoài dò xem email nào có trong hệ thống.
+const INVALID_CREDENTIALS = 'Email hoặc mật khẩu không đúng';
+
+interface TokenOwner {
+  id: string;
+  email: string;
+  role: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -27,44 +45,24 @@ export class AuthService {
       },
     });
 
-    if (!employee) {
-      throw new UnauthorizedException('Không tìm thấy tài khoản với email này');
+    if (!employee || employee.status === 'RESIGNED' || !employee.passwordHash) {
+      await verifyPassword(loginDto.password, null); // Tốn thời gian như một lần kiểm tra thật
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
-    if (employee.status === 'RESIGNED') {
-      throw new UnauthorizedException('Tài khoản đã nghỉ việc / bị vô hiệu hóa');
+    this.assertNotLocked(employee.lockedUntil);
+
+    if (!(await verifyPassword(loginDto.password, employee.passwordHash))) {
+      await this.registerFailure(employee.id, employee.email);
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
-    const payload = {
-      sub: employee.id,
-      email: employee.email,
-      role: employee.role,
-    };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: this.accessTokenSecret,
-        expiresIn: '24h',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: this.refreshTokenSecret,
-        expiresIn: '7d',
-        // jti ngẫu nhiên: 2 lần đăng nhập trong cùng 1 giây không sinh ra token trùng (token là unique trong DB)
-        jwtid: randomUUID(),
-      }),
-    ]);
-
-    // Lưu phiên refresh token
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    await this.prisma.refreshSession.create({
-      data: {
-        token: refreshToken,
-        employeeId: employee.id,
-        expiresAt,
-      },
-    });
+    if (employee.failedLoginCount > 0 || employee.lockedUntil) {
+      await this.prisma.employee.update({
+        where: { id: employee.id },
+        data: { failedLoginCount: 0, lockedUntil: null },
+      });
+    }
 
     return {
       user: {
@@ -77,13 +75,61 @@ export class AuthService {
         positionId: employee.positionId ?? undefined,
         positionName: employee.position?.title,
         avatarUrl: employee.avatarUrl ?? undefined,
+        mustChangePassword: employee.mustChangePassword,
       },
-      tokens: {
-        accessToken,
-        refreshToken,
-        expiresIn: 86400,
-      },
+      tokens: await this.issueTokens(employee),
     };
+  }
+
+  /**
+   * Nhân viên tự đổi mật khẩu. Mọi phiên đăng nhập cũ bị thu hồi và trả về token mới cho phiên hiện tại.
+   * Sai mật khẩu hiện tại trả 400 (không phải 401): web coi 401 là "hết phiên" và đăng xuất người dùng.
+   */
+  async changePassword(employeeId: string, dto: ChangePasswordDto) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee || employee.status === 'RESIGNED' || !employee.passwordHash) {
+      throw new UnauthorizedException('Tài khoản không hợp lệ');
+    }
+
+    this.assertNotLocked(employee.lockedUntil);
+
+    if (!(await verifyPassword(dto.currentPassword, employee.passwordHash))) {
+      await this.registerFailure(employee.id, employee.email); // Token bị đánh cắp cũng không dò được mật khẩu
+      throw new BadRequestException('Mật khẩu hiện tại không đúng');
+    }
+    if (dto.newPassword === dto.currentPassword) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+    if (dto.newPassword.toLowerCase().includes(employee.email.split('@')[0].toLowerCase())) {
+      throw new BadRequestException('Mật khẩu mới không được chứa phần tên của email');
+    }
+
+    const passwordHash = await hashPassword(dto.newPassword);
+    await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id: employee.id },
+        data: {
+          passwordHash,
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+        },
+      }),
+      this.prisma.refreshSession.deleteMany({ where: { employeeId: employee.id } }),
+      this.prisma.auditLog.create({
+        data: {
+          actorType: 'HUMAN',
+          actorId: employee.id,
+          action: 'CHANGE_PASSWORD',
+          entityType: 'Employee',
+          entityId: employee.id,
+          payload: { email: employee.email }, // Không bao giờ ghi mật khẩu vào nhật ký
+        },
+      }),
+    ]);
+
+    return { success: true, tokens: await this.issueTokens(employee) };
   }
 
   async refresh(refreshToken: string) {
@@ -116,47 +162,12 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản không hợp lệ');
     }
 
-    const newPayload = {
-      sub: employee.id,
-      email: employee.email,
-      role: employee.role,
-    };
-
-    const [newAccessToken, newRefreshToken] = await Promise.all([
-      this.jwtService.signAsync(newPayload, {
-        secret: this.accessTokenSecret,
-        expiresIn: '24h',
-      }),
-      this.jwtService.signAsync(newPayload, {
-        secret: this.refreshTokenSecret,
-        expiresIn: '7d',
-        jwtid: randomUUID(),
-      }),
-    ]);
-
     // Xoá session cũ và tạo session mới
     await this.prisma.refreshSession.delete({
       where: { id: session.id },
     });
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    await this.prisma.refreshSession.create({
-      data: {
-        token: newRefreshToken,
-        employeeId: employee.id,
-        expiresAt,
-      },
-    });
-
-    return {
-      tokens: {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        expiresIn: 86400,
-      },
-    };
+    return { tokens: await this.issueTokens(employee) };
   }
 
   async logout(employeeId: string, refreshToken?: string) {
@@ -208,6 +219,81 @@ export class AuthService {
       avatarUrl: employee.avatarUrl,
       phone: employee.phone,
       joinDate: employee.joinDate,
+      mustChangePassword: employee.mustChangePassword,
     };
+  }
+
+  /** Cặp token mới và lưu phiên refresh token (7 ngày). */
+  private async issueTokens(employee: TokenOwner) {
+    const payload = {
+      sub: employee.id,
+      email: employee.email,
+      role: employee.role,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: this.accessTokenSecret,
+        expiresIn: '24h',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.refreshTokenSecret,
+        expiresIn: '7d',
+        // jti ngẫu nhiên: 2 lần đăng nhập trong cùng 1 giây không sinh ra token trùng (token là unique trong DB)
+        jwtid: randomUUID(),
+      }),
+    ]);
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await this.prisma.refreshSession.create({
+      data: {
+        token: refreshToken,
+        employeeId: employee.id,
+        expiresAt,
+      },
+    });
+
+    return { accessToken, refreshToken, expiresIn: 86400 };
+  }
+
+  private assertNotLocked(lockedUntil: Date | null) {
+    if (lockedUntil && lockedUntil > new Date()) {
+      const minutes = Math.ceil((lockedUntil.getTime() - Date.now()) / 60_000);
+      throw new HttpException(
+        {
+          code: 'ACCOUNT_LOCKED',
+          message: `Tài khoản tạm khóa do nhập sai mật khẩu nhiều lần. Vui lòng thử lại sau ${minutes} phút.`,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** Cộng một lần sai (nguyên tử); đủ ngưỡng thì khóa tạm và ghi nhật ký. */
+  private async registerFailure(employeeId: string, email: string) {
+    const { failedLoginCount } = await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { failedLoginCount: { increment: 1 } },
+      select: { failedLoginCount: true },
+    });
+    if (failedLoginCount < MAX_FAILED_LOGINS) return;
+
+    await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id: employeeId },
+        data: { failedLoginCount: 0, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60_000) },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          actorType: 'SYSTEM',
+          action: 'ACCOUNT_LOCKED',
+          entityType: 'Employee',
+          entityId: employeeId,
+          payload: { email, minutes: LOCK_MINUTES, reason: `${MAX_FAILED_LOGINS} lần nhập sai mật khẩu liên tiếp` },
+        },
+      }),
+    ]);
   }
 }

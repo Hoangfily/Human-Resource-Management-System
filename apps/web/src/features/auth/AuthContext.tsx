@@ -11,6 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<boolean>;
   loginAsDemoRole: (roleKey: 'employee' | 'manager' | 'hrAdmin' | 'admin') => Promise<boolean>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -57,9 +58,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       setIsLoading(false);
       return false;
-    } catch {
-      // 2. Khi API lỗi hoặc offline, nếu bật mock thì tự fallback
-      if (isMockEnabled()) {
+    } catch (err) {
+      // 2. Chỉ máy phát triển, khi không kết nối được API (không có phản hồi), mới được dùng dữ liệu mock.
+      // Sai mật khẩu (401) hay tài khoản bị khóa (429) phải là lỗi thật: không được "đăng nhập giả" thay thế.
+      const unreachable = (err as { code?: string })?.code === 'HTTP_UNKNOWN';
+      if (import.meta.env.DEV && unreachable && isMockEnabled()) {
         let matchedUser = Object.values(MOCK_USERS).find((u) => u.email === credentials.email);
         if (!matchedUser) {
           matchedUser = {
@@ -78,7 +81,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return true;
       }
       setIsLoading(false);
-      return false;
+      throw err; // Giữ nguyên thông báo của API (vd: tài khoản tạm khóa) để trang đăng nhập hiển thị
     }
   };
 
@@ -92,10 +95,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       admin: 'admin@gmail.com',
     };
     const email = emailMap[roleKey];
-    if (email) {
-      return login({ email, password: 'password123' });
+    // Mật khẩu mẫu chỉ có trong bản chạy phát triển (khớp SEED_PASSWORD mặc định của apps/api/prisma/seed.ts);
+    // bản production không chứa nó và nút đăng nhập nhanh bị ẩn.
+    if (import.meta.env.DEV && email) {
+      return login({ email, password: 'Demo@12345' });
     }
     return false;
+  };
+
+  // Đổi mật khẩu: API thu hồi mọi phiên cũ và trả token mới cho phiên hiện tại
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+    const response = (await apiClient.post('/auth/change-password', { currentPassword, newPassword })) as unknown as {
+      tokens: { accessToken: string };
+    };
+    authStorage.setAccessToken(response.tokens.accessToken);
+    if (user) {
+      const updated = { ...user, mustChangePassword: false };
+      authStorage.setUser(updated);
+      setUser(updated);
+    }
   };
 
   const logout = () => {
@@ -112,6 +130,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading,
         login,
         loginAsDemoRole,
+        changePassword,
         logout,
       }}
     >

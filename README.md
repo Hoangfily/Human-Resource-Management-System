@@ -71,7 +71,7 @@ cp .env.example .env                            # điền OPENAI_API_KEY
 
 ## 👥 Danh sách Tài khoản Kiểm thử Mẫu
 
-Tạo bởi `npm run seed:api`. Đăng nhập chỉ bằng email:
+Tạo bởi `npm run seed:api`. Đăng nhập bằng email và mật khẩu; **mật khẩu mẫu (chỉ môi trường phát triển) là `Demo@12345`**, đổi bằng biến `SEED_PASSWORD` khi chạy seed:
 
 | Vai trò | Email đăng nhập | Quyền hạn trong hệ thống |
 |---|---|---|
@@ -79,6 +79,12 @@ Tạo bởi `npm run seed:api`. Đăng nhập chỉ bằng email:
 | **HR** | `huyhoang@gmail.com` | Quản lý nhân tài, thêm mới nhân viên, xem toàn bộ đơn từ và nhật ký kiểm toán. |
 | **MANAGER** | `tiendung@gmail.com` | Quản lý trực tiếp: xem hàng đợi phê duyệt đơn, duyệt/từ chối đơn cấp dưới. |
 | **EMPLOYEE** | `minhphong@gmail.com` | Nhân viên: quẹt thẻ chấm công, nộp 4 loại đơn (Nghỉ phép, Làm thêm OT, Đổi ca, Giải trình công). |
+
+### Quản lý mật khẩu
+- Nhân viên mới do HR/Admin tạo nhận **mật khẩu tạm** (hiện đúng một lần trên màn hình); họ phải đổi ngay ở lần đăng nhập đầu. Quên mật khẩu hoặc bị khóa: HR/Admin bấm **Cấp lại** ở danh sách nhân sự (HR chỉ cấp lại cho EMPLOYEE/MANAGER).
+- Sai mật khẩu 5 lần liên tiếp thì tài khoản bị khóa 15 phút.
+- Tạo hoặc đặt lại **quản trị viên** (đầu tiên khi triển khai, hoặc khi mất quyền truy cập): `npm run admin:create -- admin@congty.vn "Họ và tên" "MatKhauTam123"`, hoặc đặt biến `ADMIN_PASSWORD` thay cho tham số thứ 3.
+- Seed với `NODE_ENV=production` khóa các tài khoản mẫu (trừ khi đặt `SEED_DEMO=1` và `SEED_PASSWORD`).
 
 ---
 

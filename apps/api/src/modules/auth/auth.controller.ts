@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
@@ -20,6 +21,17 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refresh(refreshTokenDto.refreshToken);
+  }
+
+  // Đổi mật khẩu: kể cả khi tài khoản đang bị buộc đổi (JwtAuthGuard cho phép riêng route này)
+  @UseGuards(JwtAuthGuard)
+  @Header('Cache-Control', 'no-store')
+  @Post('change-password')
+  async changePassword(
+    @CurrentUser('id') employeeId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(employeeId, dto);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -46,6 +58,7 @@ export class AuthController {
         positionId: profile.positionId,
         positionName: profile.positionName,
         avatarUrl: profile.avatarUrl,
+        mustChangePassword: profile.mustChangePassword,
       },
       profile,
     };

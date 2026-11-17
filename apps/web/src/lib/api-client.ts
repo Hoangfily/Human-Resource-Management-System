@@ -53,6 +53,18 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // 403 PASSWORD_CHANGE_REQUIRED: mật khẩu vừa được cấp lại, chuyển sang trang đổi mật khẩu
+    if (
+      error.response?.status === 403 &&
+      (error.response.data as { code?: string } | undefined)?.code === 'PASSWORD_CHANGE_REQUIRED' &&
+      typeof window !== 'undefined' &&
+      !window.location.pathname.includes('/change-password')
+    ) {
+      const stored = authStorage.getUser();
+      if (stored) authStorage.setUser({ ...stored, mustChangePassword: true });
+      window.location.replace('/change-password');
+    }
+
     // Chuẩn hóa cấu trúc lỗi theo docs/01-api-contract.md
     const serverError = error.response?.data;
     const formattedError: ApiErrorResponse = {

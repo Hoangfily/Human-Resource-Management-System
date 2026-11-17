@@ -24,6 +24,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // Mật khẩu do HR/Admin cấp: phải đổi trước khi dùng bất kỳ trang nào (API cũng chặn mọi route khác)
+  if (user.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
+
   if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     return (
       <div style={{ padding: '64px 24px', textAlign: 'center' }}>

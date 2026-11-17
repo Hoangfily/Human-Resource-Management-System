@@ -5,8 +5,21 @@ import {
   RequestType,
   Role,
 } from '@prisma/client';
+import { hashSync } from 'bcryptjs';
+
+try {
+  process.loadEnvFile(); // apps/api/.env (npm chạy script với thư mục hiện tại là apps/api); biến đã đặt sẵn không bị ghi đè
+} catch {
+  /* Không có .env: dùng biến môi trường của tiến trình */
+}
 
 const prisma = new PrismaClient();
+
+// Tài khoản mẫu chỉ dành cho máy phát triển. Production không có mật khẩu mặc định:
+// các tài khoản này bị khóa (RESIGNED, không có mật khẩu) trừ khi cố ý đặt SEED_DEMO=1 và SEED_PASSWORD.
+const isProduction = process.env.NODE_ENV === 'production';
+const demoEnabled = !isProduction || process.env.SEED_DEMO === '1';
+const demoPassword = process.env.SEED_PASSWORD || (isProduction ? '' : 'Demo@12345');
 
 async function main() {
   console.log('--- Đang bắt đầu nạp dữ liệu mẫu (Seeding Database) ---');
@@ -219,6 +232,29 @@ async function main() {
       defaultShiftId: morningShift.id,
     },
   });
+
+  // 4.6 Mật khẩu cho các tài khoản mẫu
+  const demoIds = [admin, manager, employee, hrAdmin, colleagueLan, colleagueNam, colleagueTuan].map((e) => e.id);
+  if (demoEnabled) {
+    if (demoPassword.length < 10) {
+      throw new Error('SEED_PASSWORD phải có ít nhất 10 ký tự (bắt buộc khi chạy seed với NODE_ENV=production)');
+    }
+    await prisma.employee.updateMany({
+      where: { id: { in: demoIds } },
+      data: {
+        passwordHash: hashSync(demoPassword, 12),
+        mustChangePassword: isProduction, // Máy phát triển vào thẳng; production bắt buộc đổi
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
+    });
+  } else {
+    await prisma.employee.updateMany({
+      where: { id: { in: demoIds } },
+      data: { passwordHash: null, status: EmployeeStatus.RESIGNED },
+    });
+    console.log('NODE_ENV=production: các tài khoản mẫu đã bị khóa. Tạo quản trị viên thật bằng: npm run admin:create');
+  }
 
   // 5. Tạo Danh mục Loại nghỉ phép (Leave Types)
   const leaveTypesData = [
@@ -534,6 +570,9 @@ async function main() {
   console.log('2. Manager:   tiendung@gmail.com  (Role: MANAGER, Nguyễn Tiến Dũng)');
   console.log('3. Employee:  minhphong@gmail.com (Role: EMPLOYEE, Phạm Minh Phong, Quản lý: tiendung)');
   console.log('4. HR Admin:  huyhoang@gmail.com  (Role: HR, Nguyễn Huy Hoàng)');
+  if (demoEnabled) {
+    console.log(`Mật khẩu các tài khoản mẫu: ${isProduction ? '(theo SEED_PASSWORD)' : demoPassword}`);
+  }
   console.log(`Đã nạp ${policies.length} quy chuẩn chính sách công ty và quỹ ngày phép 2026.`);
 }
 
