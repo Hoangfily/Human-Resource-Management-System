@@ -30,10 +30,11 @@ cp .env.example .env
 # 2. Khởi chạy toàn bộ hệ thống
 docker compose up --build
 
-# 3. Lần đầu: tạo bảng và dữ liệu mẫu (chạy từ máy host, cần apps/api/.env như mục 2)
-npm run db:push
+# 3. Lần đầu: nạp dữ liệu mẫu (chạy từ máy host, cần apps/api/.env như mục 2).
+#    Container API tự tạo bảng khi khởi động (prisma migrate deploy).
 npm run seed:api
 ```
+> Nếu DB đã có sẵn từ trước, tạo bằng `db:push` (container API báo lỗi `P3005`), chạy **một lần** `npm run db:baseline` để đánh dấu migration đầu tiên đã áp dụng, rồi khởi động lại API.
 - **Web UI:** `http://localhost:5173`
 - **Backend API:** `http://localhost:3000/api/v1` (Health: `/api/v1/health`)
 - **AI Service:** `http://localhost:8000` (Health: `/health`)
@@ -47,8 +48,10 @@ docker compose up -d postgres redis
 cp apps/api/.env.example apps/api/.env
 npm install
 npm run prisma:generate   # npm bản mới chặn install script của Prisma, phải chạy tay
-npm run db:push           # tạo bảng
+npm run db:migrate        # tạo bảng (áp dụng các migration trong apps/api/prisma/migrations)
 npm run seed:api          # tạo tài khoản mẫu
+# Đổi schema.prisma: npm run db:migrate:dev -- --name <ten_thay_doi> rồi commit thư mục migrations.
+# DB cũ tạo bằng db:push: chạy một lần npm run db:baseline.
 
 # Chạy Backend API
 npm run dev:api

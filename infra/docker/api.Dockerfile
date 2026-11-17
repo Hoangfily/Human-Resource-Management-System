@@ -27,7 +27,10 @@ RUN npm ci -w @hr-agent/api --omit=dev && npm cache clean --force
 # The generated Prisma client replaces the stub that @prisma/client installs
 COPY --from=build /repo/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
+COPY apps/api/prisma ./apps/api/prisma
 USER node
 WORKDIR /repo/apps/api
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+# Apply pending migrations (creates the tables on an empty database), then start.
+# A database made by `prisma db push` has no migration history: baseline it once with `npm run db:baseline`.
+CMD ["sh", "-c", "npx --no-install prisma migrate deploy && exec node dist/main.js"]
