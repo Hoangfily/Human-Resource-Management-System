@@ -9,6 +9,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { RequestType } from '@prisma/client';
+import { Throttle } from '@nestjs/throttler';
+import { CHAT_LIMIT, THROTTLE_WINDOW_MS } from '../../common/guards/app-throttler.guard';
 import { AgentService } from './agent.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -72,6 +74,7 @@ export class AgentController {
   /**
    * Cổng hội thoại chat giữa Nhân viên và Trợ lý AI
    */
+  @Throttle({ default: { limit: CHAT_LIMIT, ttl: THROTTLE_WINDOW_MS } }) // Mỗi lượt chat tốn tiền gọi LLM
   @Post('chat')
   async chat(
     @CurrentUser() caller: { id: string; role: string },

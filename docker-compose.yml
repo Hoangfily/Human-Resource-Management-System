@@ -39,6 +39,12 @@ services:
       # Bắt buộc: thiếu thì API không khởi động (đặt trong .env ở gốc repo)
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+      # Giới hạn số lần gọi / CORS / proxy tin cậy: xem apps/api/.env.example. Để trống = mặc định
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      THROTTLE_LOGIN_PER_MIN: ${THROTTLE_LOGIN_PER_MIN:-}
+      THROTTLE_CHAT_PER_MIN: ${THROTTLE_CHAT_PER_MIN:-}
+      THROTTLE_GLOBAL_PER_MIN: ${THROTTLE_GLOBAL_PER_MIN:-}
     ports:
       - "${API_PORT:-3000}:3000"
     restart: unless-stopped

@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Header, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { LOGIN_LIMIT, THROTTLE_WINDOW_MS } from '../../common/guards/app-throttler.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -12,6 +14,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle({ default: { limit: LOGIN_LIMIT, ttl: THROTTLE_WINDOW_MS } }) // Theo IP: chặn dò mật khẩu hàng loạt
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
