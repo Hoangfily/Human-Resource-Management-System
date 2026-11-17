@@ -84,6 +84,19 @@ Mở `http://<địa chỉ máy chủ>/`, đăng nhập quản trị viên (hệ
 - **Bật AI tự duyệt:** sau vài tuần để AI chỉ đề xuất và đối chiếu với quyết định của người duyệt, vào *Agent settings* đổi mức tự chủ từng loại đơn.
 - **Một bản API duy nhất:** bộ đếm giới hạn số lần gọi và lịch sử chat của AI nằm trong bộ nhớ tiến trình; chạy nhiều bản thì phải chuyển sang Redis.
 
+### Kiểm tra tự động (CI)
+Mỗi Pull Request và mỗi lần đẩy lên `api`/`main`, GitHub Actions (`.github/workflows/`) tự chạy:
+
+| Job | Kiểm tra gì | Chạy cùng việc đó ở máy bạn |
+|---|---|---|
+| `API + Web build` | `npm ci`, sinh client Prisma, build API và Web | `npm run prisma:generate && npm run build` |
+| `AI tests` | toàn bộ test của AI (Python 3.12, LLM giả, không cần key) | `cd apps/ai && python -m pytest -q` |
+| `Prisma migrations` | migration áp dụng được lên DB trống; **`schema.prisma` khớp với thư mục migrations**; seed chạy ở cả hai chế độ | `npm run db:migrate`, rồi `npx prisma migrate diff --from-migrations apps/api/prisma/migrations --to-schema-datamodel apps/api/prisma/schema.prisma --shadow-database-url <url> --exit-code` |
+| `Docker` (chỉ khi `infra/`, compose hoặc `package*.json` đổi) | dựng cả stack production, chờ mọi dịch vụ `healthy`, gọi thử qua proxy | `npm run prod:up` (cần `.env.production`) |
+
+Job `Prisma migrations` đỏ nghĩa là bạn đổi `schema.prisma` mà chưa tạo migration: chạy `npm run db:migrate:dev -- --name <ten_thay_doi>` rồi commit thư mục `apps/api/prisma/migrations`.
+Muốn CI **chặn** merge khi đỏ: GitHub, Settings, Branches, thêm rule cho `api` và `main`, bật *Require status checks to pass before merging* và chọn các job trên.
+
 ---
 
 ## 👥 Danh sách Tài khoản Kiểm thử Mẫu
