@@ -67,6 +67,23 @@ cp .env.example .env                            # điền OPENAI_API_KEY
 .venv/Scripts/python -m uvicorn app.main:app --port 8000
 ```
 
+### 3. Chạy thật (production) trên một máy chủ
+Dùng `docker-compose.prod.yml` (không phải `docker-compose.yml`): chỉ proxy Caddy mở cổng ra ngoài, Postgres/API/AI/Web nằm trong mạng nội bộ; API và AI từ chối khởi động nếu còn bí mật mẫu; AI tự quyết đơn **tắt** (chỉ đề xuất) cho tới khi quản trị viên bật.
+
+```bash
+cp .env.production.example .env.production   # rồi điền: npm run secrets:generate sinh 5 bí mật; thêm OPENAI_API_KEY
+npm run prod:up                              # build và chạy (lần đầu mất vài phút)
+npm run prod:seed                            # lần đầu: nạp loại nghỉ, quy chế, ca, mức tự chủ AI (KHÔNG tạo nhân viên mẫu)
+npm run prod:admin -- admin@congty.vn "Họ và tên" "MatKhauTam123"   # lần đầu: quản trị viên đầu tiên
+```
+Mở `http://<địa chỉ máy chủ>/`, đăng nhập quản trị viên (hệ thống bắt đổi mật khẩu ngay), rồi thêm nhân viên ở trang Quản trị.
+
+- **HTTPS:** có tên miền trỏ về máy chủ thì đặt `SITE_ADDRESS=hr.congty.vn` trong `.env.production` và mở cổng 80 + 443: Caddy tự xin và gia hạn chứng chỉ. Để trống thì chạy HTTP cổng 80 (chỉ nên dùng thử, mật khẩu đi qua mạng không mã hóa).
+- **Vận hành:** `npm run prod:logs` xem log; `npm run prod:down` tắt (giữ dữ liệu, **không** thêm `-v`); cập nhật bản mới: `git pull` rồi `npm run prod:up` (API tự áp dụng migration).
+- **Sao lưu:** `npm run prod:backup` tạo `backups/hr-<ngày-giờ>.sql.gz`. File này chứa dữ liệu nhân sự và các phiên đăng nhập đang mở: cất nơi an toàn. Cách khôi phục ở đầu `scripts/backup-db.mjs`. Nên chạy định kỳ (Task Scheduler/cron) và chép sang máy khác.
+- **Bật AI tự duyệt:** sau vài tuần để AI chỉ đề xuất và đối chiếu với quyết định của người duyệt, vào *Agent settings* đổi mức tự chủ từng loại đơn.
+- **Một bản API duy nhất:** bộ đếm giới hạn số lần gọi và lịch sử chat của AI nằm trong bộ nhớ tiến trình; chạy nhiều bản thì phải chuyển sang Redis.
+
 ---
 
 ## 👥 Danh sách Tài khoản Kiểm thử Mẫu

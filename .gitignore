@@ -21,3 +21,6 @@ venv/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Sao luu DB (chua du lieu nhan su)
+backups/
