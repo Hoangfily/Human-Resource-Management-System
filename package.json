@@ -15,6 +15,7 @@
     "build:api": "npm --workspace @hr-agent/api run build",
     "seed:api": "npm --workspace @hr-agent/api run seed",
     "admin:create": "npm --workspace @hr-agent/api run admin:create --",
+    "secrets:generate": "node scripts/gen-secrets.mjs",
     "prisma:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
     "db:migrate": "prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
     "db:migrate:dev": "prisma migrate dev --schema=apps/api/prisma/schema.prisma",

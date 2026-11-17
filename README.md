@@ -86,6 +86,14 @@ Tạo bởi `npm run seed:api`. Đăng nhập bằng email và mật khẩu; **m
 - Tạo hoặc đặt lại **quản trị viên** (đầu tiên khi triển khai, hoặc khi mất quyền truy cập): `npm run admin:create -- admin@congty.vn "Họ và tên" "MatKhauTam123"`, hoặc đặt biến `ADMIN_PASSWORD` thay cho tham số thứ 3.
 - Seed với `NODE_ENV=production` khóa các tài khoản mẫu (trừ khi đặt `SEED_DEMO=1` và `SEED_PASSWORD`).
 
+### Bí mật khi chạy thật
+Các giá trị trong `.env.example` (mật khẩu Postgres `change-me-local`, `JWT_*`, `AI_*_TOKEN`) **chỉ dành cho máy phát triển** và nằm công khai trong repo. Khi chạy với `NODE_ENV=production` (API) và `APP_ENV=production` (AI), cả hai dịch vụ **từ chối khởi động** nếu còn giá trị mẫu, giá trị ngắn hơn 32 ký tự, hoặc hai bí mật cùng mục đích bị đặt trùng nhau (liệt kê hết các vấn đề một lần).
+
+```bash
+npm run secrets:generate   # in POSTGRES_PASSWORD, JWT_*, AI_*_TOKEN ngẫu nhiên (64 ký tự); dán vào .env, không ghi file nào
+```
+Đổi `JWT_*` thì mọi người phải đăng nhập lại; đổi mật khẩu Postgres trên DB đã có dữ liệu thì phải đổi cả trong Postgres (`ALTER USER`), không chỉ trong `.env`.
+
 ---
 
 ## 🔒 Quy chuẩn Tích hợp & Bảo mật

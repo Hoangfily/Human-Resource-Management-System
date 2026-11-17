@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import { assertProductionConfig } from './config/production-config';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -13,6 +14,9 @@ async function bootstrap() {
   } catch {
     /* Không có file .env: dùng biến môi trường của tiến trình */
   }
+
+  // NODE_ENV=production: từ chối khởi động nếu còn secret/token/mật khẩu DB mẫu (liệt kê hết một lần)
+  assertProductionConfig();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 

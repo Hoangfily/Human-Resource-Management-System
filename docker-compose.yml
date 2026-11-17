@@ -80,6 +80,8 @@ services:
       LLM_FALLBACK_MODELS: ${LLM_FALLBACK_MODELS:-}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
       COMPANY_TIMEZONE: ${COMPANY_TIMEZONE:-Asia/Ho_Chi_Minh}
+      # production: từ chối khởi động nếu AI_*_TOKEN là giá trị mẫu, ngắn hơn 32 ký tự hoặc trùng nhau
+      APP_ENV: ${APP_ENV:-}
     ports:
       - "${AI_PORT:-8000}:8000"
     restart: unless-stopped

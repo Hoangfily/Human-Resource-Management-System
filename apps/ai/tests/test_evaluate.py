@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from app.agents.supervisor import AGENTS, EvaluationDeps
-from app.config import get_settings
+from app.config import get_settings, production_secret_problems
 from app.deps import get_evaluation_deps
 from app.llm import LLMError
 from app.llm.fake import FakeLLM
@@ -393,3 +393,55 @@ async def test_unexpected_errors_log_where_but_not_what(client: httpx.AsyncClien
         await evaluate(client)
     assert "TypeError at test_evaluate.py:" in caplog.text
     assert "0912345678" not in caplog.text
+
+
+# ---- production secrets (APP_ENV=production) ----
+def _tokens(service: str, inbound: str):
+    return replace(get_settings(), ai_service_token=service, ai_inbound_token=inbound)
+
+
+def test_production_accepts_two_long_random_different_tokens() -> None:
+    assert production_secret_problems(_tokens("a" * 40, "b" * 40)) == []
+
+
+@pytest.mark.parametrize(
+    ("service", "inbound", "expected"),
+    [
+        ("", "b" * 40, "AI_SERVICE_TOKEN is not set"),
+        ("a" * 40, "", "AI_INBOUND_TOKEN is not set"),
+        ("ai-service-secret-token-hr-2026", "b" * 40, "AI_SERVICE_TOKEN is the public example"),
+        ("a" * 40, "ai-inbound-secret-token-hr-2026", "AI_INBOUND_TOKEN is the public example"),
+        ("short", "b" * 40, "AI_SERVICE_TOKEN is shorter than 32"),
+        ("a" * 40, "a" * 40, "must differ"),
+    ],
+)
+def test_production_refuses_unsafe_tokens(service: str, inbound: str, expected: str) -> None:
+    assert any(expected in p for p in production_secret_problems(_tokens(service, inbound)))
+
+
+async def test_production_start_is_refused_with_example_tokens(monkeypatch) -> None:
+    from app.main import lifespan
+
+    monkeypatch.setenv("APP_ENV", "production")
+    get_settings.cache_clear()
+    monkeypatch.setenv("AI_SERVICE_TOKEN", "ai-service-secret-token-hr-2026")
+    monkeypatch.setenv("AI_INBOUND_TOKEN", "ai-inbound-secret-token-hr-2026")
+    try:
+        with pytest.raises(RuntimeError, match="Refusing to start in production"):
+            async with lifespan(app):
+                pass
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_start_is_not_blocked_outside_production(monkeypatch) -> None:
+    from app.main import lifespan
+
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("AI_SERVICE_TOKEN", "ai-service-secret-token-hr-2026")
+    get_settings.cache_clear()
+    try:
+        async with lifespan(app):
+            pass
+    finally:
+        get_settings.cache_clear()
