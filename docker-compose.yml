@@ -41,6 +41,13 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
     ports:
       - "${API_PORT:-3000}:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +76,14 @@ services:
       COMPANY_TIMEZONE: ${COMPANY_TIMEZONE:-Asia/Ho_Chi_Minh}
     ports:
       - "${AI_PORT:-8000}:8000"
+    restart: unless-stopped
+    healthcheck:
+      # python:slim has no curl/wget: /health answers 200 even when the LLM is "degraded" (process is up)
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   web:
     build:
@@ -78,6 +93,12 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
     ports:
       - "${WEB_PORT:-5173}:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     depends_on:
       - api
 
