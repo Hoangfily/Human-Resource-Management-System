@@ -23,10 +23,10 @@
     "prod:admin": "docker compose -f docker-compose.prod.yml --env-file .env.production exec api node --experimental-strip-types prisma/admin-user.ts",
     "prod:backup": "node scripts/backup-db.mjs",
     "prisma:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
-    "db:migrate": "prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
-    "db:migrate:dev": "prisma migrate dev --schema=apps/api/prisma/schema.prisma",
-    "db:baseline": "prisma migrate resolve --applied 20261021000000_init --schema=apps/api/prisma/schema.prisma",
-    "db:push": "prisma db push --schema=apps/api/prisma/schema.prisma"
+    "db:migrate": "npm --workspace @hr-agent/api run db:migrate",
+    "db:migrate:dev": "npm --workspace @hr-agent/api run db:migrate:dev --",
+    "db:baseline": "npm --workspace @hr-agent/api run db:baseline",
+    "db:push": "npm --workspace @hr-agent/api run db:push"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
