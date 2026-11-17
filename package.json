@@ -14,7 +14,18 @@
     "dev:api": "npm --workspace @hr-agent/api run start:dev",
     "build:api": "npm --workspace @hr-agent/api run build",
     "seed:api": "npm --workspace @hr-agent/api run seed",
+    "admin:create": "npm --workspace @hr-agent/api run admin:create --",
+    "secrets:generate": "node scripts/gen-secrets.mjs",
+    "prod:up": "docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build",
+    "prod:down": "docker compose -f docker-compose.prod.yml --env-file .env.production down",
+    "prod:logs": "docker compose -f docker-compose.prod.yml --env-file .env.production logs -f --tail=100",
+    "prod:seed": "docker compose -f docker-compose.prod.yml --env-file .env.production exec api node --experimental-strip-types prisma/seed.ts",
+    "prod:admin": "docker compose -f docker-compose.prod.yml --env-file .env.production exec api node --experimental-strip-types prisma/admin-user.ts",
+    "prod:backup": "node scripts/backup-db.mjs",
     "prisma:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema=apps/api/prisma/schema.prisma",
+    "db:baseline": "prisma migrate resolve --applied 20261021000000_init --schema=apps/api/prisma/schema.prisma",
     "db:push": "prisma db push --schema=apps/api/prisma/schema.prisma"
   },
   "devDependencies": {

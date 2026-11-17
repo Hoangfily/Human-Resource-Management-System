@@ -6,7 +6,7 @@
  */
 
 // Giá trị mẫu có trong repo (.env.example): dùng được ở máy local, cấm khi NODE_ENV=production
-const PUBLIC_EXAMPLES = new Set([
+export const PUBLIC_EXAMPLES = new Set([
   'hr_agent_super_secret_jwt_access_token_key_2026',
   'hr_agent_super_secret_jwt_refresh_token_key_2026',
   'replace-with-a-long-random-secret',

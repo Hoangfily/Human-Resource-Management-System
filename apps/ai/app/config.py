@@ -66,6 +66,30 @@ class Settings:
     company_timezone: str
 
 
+# Example values shipped in the repo (.env.example): fine on a dev machine, refused in production
+PUBLIC_EXAMPLE_TOKENS = frozenset({"ai-service-secret-token-hr-2026", "ai-inbound-secret-token-hr-2026"})
+MIN_PRODUCTION_TOKEN_LENGTH = 32
+
+
+def is_production() -> bool:
+    return os.getenv("APP_ENV", "").strip().lower() == "production"
+
+
+def production_secret_problems(settings: "Settings") -> list[str]:
+    """What is unsafe about the service tokens for a production run (empty list = fine)."""
+    problems = []
+    for name, value in (("AI_SERVICE_TOKEN", settings.ai_service_token), ("AI_INBOUND_TOKEN", settings.ai_inbound_token)):
+        if not value:
+            problems.append(f"{name} is not set")
+        elif value in PUBLIC_EXAMPLE_TOKENS:
+            problems.append(f"{name} is the public example value from the repo")
+        elif len(value) < MIN_PRODUCTION_TOKEN_LENGTH:
+            problems.append(f"{name} is shorter than {MIN_PRODUCTION_TOKEN_LENGTH} characters")
+    if settings.ai_service_token and settings.ai_service_token == settings.ai_inbound_token:
+        problems.append("AI_SERVICE_TOKEN and AI_INBOUND_TOKEN must differ")  # One leak must not open both directions
+    return problems
+
+
 @lru_cache
 def get_settings() -> Settings:
     provider = _provider()

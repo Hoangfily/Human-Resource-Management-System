@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -20,11 +21,21 @@ export class EmployeesController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
+  @Header('Cache-Control', 'no-store') // Phản hồi có mật khẩu tạm: không để trình duyệt hay proxy lưu lại
   async createEmployee(
     @CurrentUser() caller: { id: string; role: string },
     @Body() dto: CreateEmployeeDto,
   ) {
     return this.usersService.createEmployee(caller, dto);
+  }
+
+  @Post(':id/reset-password')
+  @Header('Cache-Control', 'no-store')
+  async resetPassword(
+    @CurrentUser() caller: { id: string; role: string },
+    @Param('id') targetId: string,
+  ) {
+    return this.usersService.resetPassword(caller, targetId);
   }
 
   @Get('me')

@@ -45,7 +45,7 @@ export const LoginPage: React.FC = () => {
     }
   }, [isAuthenticated, navigate, from]);
 
-  const onFinish = async (values: { email: string; password?: string }) => {
+  const onFinish = async (values: { email: string; password: string }) => {
     setSubmitting(true);
     try {
       const success = await login({ email: values.email, password: values.password });
@@ -55,8 +55,9 @@ export const LoginPage: React.FC = () => {
       } else {
         message.error('Đăng nhập thất bại. Vui lòng kiểm tra email hoặc mật khẩu.');
       }
-    } catch {
-      message.error('Đã xảy ra lỗi trong quá trình xác thực.');
+    } catch (err) {
+      // Thông báo thật của API: sai email/mật khẩu, tài khoản tạm khóa sau nhiều lần sai…
+      message.error((err as { message?: string })?.message || 'Đã xảy ra lỗi trong quá trình xác thực.');
     } finally {
       setSubmitting(false);
     }
@@ -170,13 +171,16 @@ export const LoginPage: React.FC = () => {
               <Title level={3} style={{ margin: 0 }}>
                 Đăng nhập hệ thống
               </Title>
-              <Text type="secondary">Nhập email hoặc chọn nhanh tài khoản thử nghiệm bên dưới.</Text>
+              <Text type="secondary">
+                {import.meta.env.DEV
+                  ? 'Nhập email và mật khẩu, hoặc chọn nhanh tài khoản thử nghiệm bên dưới.'
+                  : 'Nhập email và mật khẩu do công ty cấp.'}
+              </Text>
             </div>
 
             <Form
               name="login_form"
               layout="vertical"
-              initialValues={{ email: 'minhphong@gmail.com' }}
               onFinish={onFinish}
               size="large"
             >
@@ -195,7 +199,6 @@ export const LoginPage: React.FC = () => {
                 name="password"
                 label="Mật khẩu"
                 rules={[{ required: true, message: 'Vui lòng nhập mật khẩu!' }]}
-                initialValue="password123"
               >
                 <Input.Password
                   prefix={<LockOutlined style={{ color: '#8c8c8c' }} />}
@@ -208,6 +211,9 @@ export const LoginPage: React.FC = () => {
               </Button>
             </Form>
 
+            {/* Đăng nhập nhanh chỉ có ở bản chạy phát triển (mật khẩu mẫu của seed); production không có */}
+            {import.meta.env.DEV && (
+              <>
             <Divider plain style={{ margin: '24px 0 16px', fontSize: 13, color: '#8c8c8c' }}>
               <ThunderboltOutlined style={{ color: '#faad14' }} /> Hoặc đăng nhập nhanh kiểm thử (Demo)
             </Divider>
@@ -290,6 +296,8 @@ export const LoginPage: React.FC = () => {
               message="Đã kết nối NestJS Backend API & PostgreSQL"
               description="Đăng nhập xác thực JWT thật qua cơ sở dữ liệu Docker (kèm chế độ dự phòng Offline/Mock)."
             />
+              </>
+            )}
           </Col>
         </Row>
       </div>

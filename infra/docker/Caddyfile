@@ -1,0 +1,27 @@
+# Reverse proxy duy nhất mở cổng ra ngoài (docker-compose.prod.yml).
+#   SITE_ADDRESS trống  -> HTTP cổng 80 (compose truyền ":80"; Caddy chỉ dùng giá trị mặc định khi biến CHƯA đặt, không phải khi rỗng)
+#   SITE_ADDRESS=hr.congty.vn -> Caddy tự xin chứng chỉ HTTPS và chuyển HTTP sang HTTPS
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# ">" = đặt sau khi phản hồi từ API/Web đã về: không bị lặp header mà helmet và nginx đã gửi
+	header {
+		>X-Content-Type-Options nosniff
+		>X-Frame-Options SAMEORIGIN
+		>Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	request_body {
+		max_size 2MB
+	}
+
+	# Reverse proxy tự thêm X-Forwarded-For (IP thật của người dùng): API đặt TRUST_PROXY=1 để dùng nó
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+}

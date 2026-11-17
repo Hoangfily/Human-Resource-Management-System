@@ -5,8 +5,21 @@ import {
   RequestType,
   Role,
 } from '@prisma/client';
+import { hashSync } from 'bcryptjs';
+
+try {
+  process.loadEnvFile(); // apps/api/.env (npm chạy script với thư mục hiện tại là apps/api); biến đã đặt sẵn không bị ghi đè
+} catch {
+  /* Không có .env: dùng biến môi trường của tiến trình */
+}
 
 const prisma = new PrismaClient();
+
+// Tài khoản mẫu chỉ dành cho máy phát triển. Production không có mật khẩu mặc định:
+// các tài khoản này bị khóa (RESIGNED, không có mật khẩu) trừ khi cố ý đặt SEED_DEMO=1 và SEED_PASSWORD.
+const isProduction = process.env.NODE_ENV === 'production';
+const demoEnabled = !isProduction || process.env.SEED_DEMO === '1';
+const demoPassword = process.env.SEED_PASSWORD || (isProduction ? '' : 'Demo@12345');
 
 async function main() {
   console.log('--- Đang bắt đầu nạp dữ liệu mẫu (Seeding Database) ---');
@@ -95,6 +108,138 @@ async function main() {
       endTime: '05:00',
     },
   });
+
+  // 5. Tạo Danh mục Loại nghỉ phép (Leave Types)
+  const leaveTypesData = [
+    { code: 'ANNUAL', name: 'Nghỉ phép năm' },
+    { code: 'SICK', name: 'Nghỉ ốm đau / Khám bệnh' },
+    { code: 'UNPAID', name: 'Nghỉ không lương' },
+    { code: 'PERSONAL', name: 'Nghỉ việc riêng có lương' },
+  ];
+
+  const createdLeaveTypes: Record<string, string> = {};
+  for (const lt of leaveTypesData) {
+    const item = await prisma.leaveType.upsert({
+      where: { code: lt.code },
+      update: {},
+      create: lt,
+    });
+    createdLeaveTypes[lt.code] = item.id;
+  }
+
+  // 7. Cấu hình Mức tự chủ AI mặc định (AutonomyConfig per RequestType)
+  // Máy phát triển: AI tự quyết đơn rủi ro thấp để demo. Production: chỉ đề xuất cho tới khi quản trị viên bật
+  // (Agent settings) sau khi đã đối chiếu quyết định của AI với quyết định của người duyệt.
+  const autonomyDefaults = [
+    { requestType: RequestType.LEAVE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
+    { requestType: RequestType.OVERTIME, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
+    { requestType: RequestType.ATTENDANCE_EXPLANATION, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
+    { requestType: RequestType.SHIFT_CHANGE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
+  ];
+  for (const config of autonomyDefaults) {
+    await prisma.autonomyConfig.upsert({
+      where: { requestType: config.requestType },
+      update: {},
+      create: {
+        requestType: config.requestType,
+        level: isProduction ? AutonomyLevel.SUGGEST_ONLY : config.level,
+        minConfidence: 0.85,
+      },
+    });
+  }
+
+  // 8. Nạp Quy chế nội bộ chuẩn theo docs/03-policy.md (Company Policies)
+  const policies = [
+    {
+      key: 'LEAVE.ANNUAL_DAYS_PER_YEAR',
+      version: '2026.10-draft',
+      title: 'Số ngày phép năm tiêu chuẩn',
+      content: 'Mỗi nhân viên chính thức có tiêu chuẩn 12 ngày phép năm hưởng nguyên lương. Cứ mỗi 5 năm làm việc được cộng thêm 1 ngày.',
+    },
+    {
+      key: 'LEAVE.NOTICE_DAYS',
+      version: '2026.10-draft',
+      title: 'Thời hạn báo trước khi nghỉ phép',
+      content: 'Nghỉ 1-2 ngày phải nộp đơn trước ít nhất 3 ngày làm việc. Nghỉ trên 2 ngày liên tiếp phải nộp đơn trước ít nhất 7 ngày làm việc.',
+    },
+    {
+      key: 'LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS',
+      version: '2026.10-draft',
+      title: 'Yêu cầu giấy khám bệnh khi nghỉ ốm',
+      content: 'Nghỉ ốm trên 2 ngày làm việc liên tiếp bắt buộc đính kèm giấy chứng nhận nghỉ việc hưởng BHXH của cơ sở khám chữa bệnh.',
+    },
+    {
+      key: 'LEAVE.PERSONAL_DAYS',
+      version: '2026.10-draft',
+      title: 'Chế độ nghỉ việc riêng có lương',
+      content: 'Bản thân kết hôn: 3 ngày; Con kết hôn: 1 ngày; Tứ thân phụ mẫu/vợ/chồng/con mất: 3 ngày.',
+    },
+    {
+      key: 'OT.MAX_HOURS_PER_MONTH',
+      version: '2026.10-draft',
+      title: 'Giờ làm thêm tối đa trong tháng',
+      content: 'Tổng số giờ làm thêm tối đa không quá 40 giờ trong một tháng và không quá 200 giờ trong một năm.',
+    },
+    {
+      key: 'OT.MAX_TOTAL_HOURS_PER_DAY',
+      version: '2026.10-draft',
+      title: 'Tổng giờ làm việc tối đa trong ngày',
+      content: 'Tổng giờ làm việc tiêu chuẩn + làm thêm giờ không được vượt quá 12 giờ/ngày.',
+    },
+    {
+      key: 'ATTENDANCE.EXPLAIN_WITHIN_DAYS',
+      version: '2026.10-draft',
+      title: 'Thời hạn nộp giải trình chấm công',
+      content: 'Nhân viên quên quẹt thẻ, quẹt muộn do sự cố hệ thống phải gửi đơn giải trình trong vòng 3 ngày làm việc kể từ ngày phát sinh.',
+    },
+    {
+      key: 'ATTENDANCE.MAX_AUTO_PER_MONTH',
+      version: '2026.10-draft',
+      title: 'Hạn mức giải trình tự động trong tháng',
+      content: 'Tối đa 3 lần giải trình tự động/tháng được AI xem xét. Vượt quá 3 lần đơn sẽ bị chuyển sang cấp thẩm định.',
+    },
+    {
+      key: 'ATTENDANCE.GRACE_PERIOD_MINUTES',
+      version: '2026.10-draft',
+      title: 'Thời gian ân hạn đi muộn',
+      content: 'Thời gian ân hạn tối đa cho phép đến muộn là 15 phút mỗi ca làm việc.',
+    },
+  ];
+
+  for (const pol of policies) {
+    await prisma.companyPolicy.upsert({
+      where: {
+        key_version: {
+          key: pol.key,
+          version: pol.version,
+        },
+      },
+      update: {},
+      create: pol,
+    });
+  }
+
+  // ---- Dữ liệu tham chiếu ở trên (phòng ban, chức danh, ca, loại nghỉ, quy chế, mức tự chủ AI): luôn nạp, chạy lại an toàn.
+  // ---- Dữ liệu mẫu ở dưới (nhân viên, quỹ phép, lịch ca): chỉ khi không phải production.
+  const DEMO_EMAILS = [
+    'admin@gmail.com',
+    'tiendung@gmail.com',
+    'minhphong@gmail.com',
+    'huyhoang@gmail.com',
+    'dothilan@gmail.com',
+    'tranvannam@gmail.com',
+    'hoangminhtuan@gmail.com',
+  ];
+  if (!demoEnabled) {
+    // Nếu DB từng được nạp dữ liệu mẫu (vd: seed ở máy dev rồi chuyển DB): khóa các tài khoản đó
+    const locked = await prisma.employee.updateMany({
+      where: { email: { in: DEMO_EMAILS } },
+      data: { passwordHash: null, status: EmployeeStatus.RESIGNED },
+    });
+    console.log(`NODE_ENV=production: đã nạp dữ liệu tham chiếu (${policies.length} quy chế, mức tự chủ AI = chỉ đề xuất).`);
+    console.log(`Không tạo nhân viên mẫu${locked.count ? `; đã khóa ${locked.count} tài khoản mẫu có sẵn` : ''}. Tạo quản trị viên đầu tiên: npm run admin:create`);
+    return;
+  }
 
   // 4. Tạo các Nhân viên nòng cốt
   // 4.1 Quản trị viên cao cấp - Admin
@@ -220,23 +365,20 @@ async function main() {
     },
   });
 
-  // 5. Tạo Danh mục Loại nghỉ phép (Leave Types)
-  const leaveTypesData = [
-    { code: 'ANNUAL', name: 'Nghỉ phép năm' },
-    { code: 'SICK', name: 'Nghỉ ốm đau / Khám bệnh' },
-    { code: 'UNPAID', name: 'Nghỉ không lương' },
-    { code: 'PERSONAL', name: 'Nghỉ việc riêng có lương' },
-  ];
-
-  const createdLeaveTypes: Record<string, string> = {};
-  for (const lt of leaveTypesData) {
-    const item = await prisma.leaveType.upsert({
-      where: { code: lt.code },
-      update: {},
-      create: lt,
-    });
-    createdLeaveTypes[lt.code] = item.id;
+  // 4.6 Mật khẩu cho các tài khoản mẫu
+  const demoIds = [admin, manager, employee, hrAdmin, colleagueLan, colleagueNam, colleagueTuan].map((e) => e.id);
+  if (demoPassword.length < 10) {
+    throw new Error('SEED_PASSWORD phải có ít nhất 10 ký tự');
   }
+  await prisma.employee.updateMany({
+    where: { id: { in: demoIds } },
+    data: {
+      passwordHash: hashSync(demoPassword, 12),
+      mustChangePassword: isProduction, // Máy phát triển vào thẳng; SEED_DEMO=1 trên production vẫn bắt buộc đổi
+      failedLoginCount: 0,
+      lockedUntil: null,
+    },
+  });
 
   // 6. Cấp Quỹ ngày phép năm 2026 (Leave Balances)
   // An Nguyễn: 12 ngày phép năm, đã dùng 2, khả dụng 10 ngày
@@ -344,92 +486,6 @@ async function main() {
     });
   }
 
-  // 7. Cấu hình Mức tự chủ AI mặc định (AutonomyConfig per RequestType)
-  const autonomyDefaults = [
-    { requestType: RequestType.LEAVE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
-    { requestType: RequestType.OVERTIME, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
-    { requestType: RequestType.ATTENDANCE_EXPLANATION, level: AutonomyLevel.AUTO_APPROVE_LOW_RISK },
-    { requestType: RequestType.SHIFT_CHANGE, level: AutonomyLevel.AUTO_DECIDE_LOW_RISK },
-  ];
-  for (const config of autonomyDefaults) {
-    await prisma.autonomyConfig.upsert({
-      where: { requestType: config.requestType },
-      update: {},
-      create: { ...config, minConfidence: 0.85, updatedById: admin.id },
-    });
-  }
-
-  // 8. Nạp Quy chế nội bộ chuẩn theo docs/03-policy.md (Company Policies)
-  const policies = [
-    {
-      key: 'LEAVE.ANNUAL_DAYS_PER_YEAR',
-      version: '2026.10-draft',
-      title: 'Số ngày phép năm tiêu chuẩn',
-      content: 'Mỗi nhân viên chính thức có tiêu chuẩn 12 ngày phép năm hưởng nguyên lương. Cứ mỗi 5 năm làm việc được cộng thêm 1 ngày.',
-    },
-    {
-      key: 'LEAVE.NOTICE_DAYS',
-      version: '2026.10-draft',
-      title: 'Thời hạn báo trước khi nghỉ phép',
-      content: 'Nghỉ 1-2 ngày phải nộp đơn trước ít nhất 3 ngày làm việc. Nghỉ trên 2 ngày liên tiếp phải nộp đơn trước ít nhất 7 ngày làm việc.',
-    },
-    {
-      key: 'LEAVE.SICK_CERT_REQUIRED_AFTER_DAYS',
-      version: '2026.10-draft',
-      title: 'Yêu cầu giấy khám bệnh khi nghỉ ốm',
-      content: 'Nghỉ ốm trên 2 ngày làm việc liên tiếp bắt buộc đính kèm giấy chứng nhận nghỉ việc hưởng BHXH của cơ sở khám chữa bệnh.',
-    },
-    {
-      key: 'LEAVE.PERSONAL_DAYS',
-      version: '2026.10-draft',
-      title: 'Chế độ nghỉ việc riêng có lương',
-      content: 'Bản thân kết hôn: 3 ngày; Con kết hôn: 1 ngày; Tứ thân phụ mẫu/vợ/chồng/con mất: 3 ngày.',
-    },
-    {
-      key: 'OT.MAX_HOURS_PER_MONTH',
-      version: '2026.10-draft',
-      title: 'Giờ làm thêm tối đa trong tháng',
-      content: 'Tổng số giờ làm thêm tối đa không quá 40 giờ trong một tháng và không quá 200 giờ trong một năm.',
-    },
-    {
-      key: 'OT.MAX_TOTAL_HOURS_PER_DAY',
-      version: '2026.10-draft',
-      title: 'Tổng giờ làm việc tối đa trong ngày',
-      content: 'Tổng giờ làm việc tiêu chuẩn + làm thêm giờ không được vượt quá 12 giờ/ngày.',
-    },
-    {
-      key: 'ATTENDANCE.EXPLAIN_WITHIN_DAYS',
-      version: '2026.10-draft',
-      title: 'Thời hạn nộp giải trình chấm công',
-      content: 'Nhân viên quên quẹt thẻ, quẹt muộn do sự cố hệ thống phải gửi đơn giải trình trong vòng 3 ngày làm việc kể từ ngày phát sinh.',
-    },
-    {
-      key: 'ATTENDANCE.MAX_AUTO_PER_MONTH',
-      version: '2026.10-draft',
-      title: 'Hạn mức giải trình tự động trong tháng',
-      content: 'Tối đa 3 lần giải trình tự động/tháng được AI xem xét. Vượt quá 3 lần đơn sẽ bị chuyển sang cấp thẩm định.',
-    },
-    {
-      key: 'ATTENDANCE.GRACE_PERIOD_MINUTES',
-      version: '2026.10-draft',
-      title: 'Thời gian ân hạn đi muộn',
-      content: 'Thời gian ân hạn tối đa cho phép đến muộn là 15 phút mỗi ca làm việc.',
-    },
-  ];
-
-  for (const pol of policies) {
-    await prisma.companyPolicy.upsert({
-      where: {
-        key_version: {
-          key: pol.key,
-          version: pol.version,
-        },
-      },
-      update: {},
-      create: pol,
-    });
-  }
-
   // 9. Nạp Lịch phân ca làm việc (Schedules) cho toàn bộ tháng 11/2026 và các ngày quanh hiện tại
   console.log('-> Đang tạo lịch phân ca làm việc (Schedules)...');
   const seedSchedule = async (empId: string, dateStr: string, startTime: string, endTime: string) => {
@@ -534,6 +590,9 @@ async function main() {
   console.log('2. Manager:   tiendung@gmail.com  (Role: MANAGER, Nguyễn Tiến Dũng)');
   console.log('3. Employee:  minhphong@gmail.com (Role: EMPLOYEE, Phạm Minh Phong, Quản lý: tiendung)');
   console.log('4. HR Admin:  huyhoang@gmail.com  (Role: HR, Nguyễn Huy Hoàng)');
+  if (demoEnabled) {
+    console.log(`Mật khẩu các tài khoản mẫu: ${isProduction ? '(theo SEED_PASSWORD)' : demoPassword}`);
+  }
   console.log(`Đã nạp ${policies.length} quy chuẩn chính sách công ty và quỹ ngày phép 2026.`);
 }
 

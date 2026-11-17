@@ -9,6 +9,10 @@ Business rules and status transitions are defined in `05-business-spec.md`; poli
 | Method | Path | Caller | Purpose |
 | --- | --- | --- | --- |
 | GET | `/health` | Any | Service health (currently at root `/health` in scaffold) |
+| POST | `/auth/login` | Public | `{ email, password }` → `{ user, tokens }`. One generic 401 `Email hoặc mật khẩu không đúng` for any failure; 5 wrong passwords lock the account for 15 minutes (429 `ACCOUNT_LOCKED`). `user.mustChangePassword` is true after a password issued by HR/Admin |
+| POST | `/auth/refresh` | Public | `{ refreshToken }` → new `tokens` |
+| POST | `/auth/change-password` | User | `{ currentPassword, newPassword }` (10–72 chars, letters and digits) → new `tokens`; every other session is revoked. While `mustChangePassword` is true every other route answers 403 `PASSWORD_CHANGE_REQUIRED` |
+| POST | `/employees/:id/reset-password` | HR, Admin | Issues a temporary password (returned once, never stored in clear or in the audit log). HR may only reset EMPLOYEE/MANAGER accounts. `POST /employees` also returns `temporaryPassword`; creating an HR or ADMIN account needs ADMIN |
 | GET | `/employees/me` | User | Current employee profile |
 | GET | `/employees/:id` | Manager, HR, AI | Employee profile (AI receives no contact details) |
 | GET | `/leave/balance` | User, AI | Leave balance (`?employeeId=` for manager/HR/AI) |

@@ -216,10 +216,11 @@ docker compose up -d postgres redis
 cp apps/api/.env.example apps/api/.env   # thêm AI_API_BASE_URL=http://localhost:8000
 npm install
 npm run prisma:generate   # npm bản mới chặn install script của Prisma, phải chạy tay
-npm run db:push           # tạo bảng trong Postgres
+npm run db:migrate        # tạo bảng trong Postgres (prisma migrate deploy)
 npm run seed:api          # tạo tài khoản mẫu
 npm run dev:api
 ```
+*(DB cũ tạo bằng `db:push` báo lỗi `P3005`: chạy một lần `npm run db:baseline`.)*
 *(API khởi động tại: `http://localhost:3000`).*
 
 ### Bước 3: Chạy AI Service
@@ -239,13 +240,13 @@ npm run dev:web
 ```
 *(Web mở tại: `http://localhost:5173`).*
 
-**Chạy toàn bộ bằng Docker:** `cp .env.example .env`, điền `OPENAI_API_KEY`, rồi `docker compose up`. Container API không tự tạo bảng: lần đầu chạy `npm run db:push` và `npm run seed:api` từ máy host như Bước 2.
+**Chạy toàn bộ bằng Docker:** `cp .env.example .env`, điền `OPENAI_API_KEY`, rồi `docker compose up`. Container API tự tạo bảng khi khởi động (`prisma migrate deploy`); lần đầu chỉ cần chạy `npm run seed:api` từ máy host (cần `apps/api/.env` như Bước 2).
 
 ---
 
 ## 5. TÀI KHOẢN MẪU KIỂM THỬ (TEST ACCOUNTS)
 
-Tạo bởi `npm run seed:api` (`apps/api/prisma/seed.ts`):
+Tạo bởi `npm run seed:api` (`apps/api/prisma/seed.ts`). Đăng nhập bằng email và mật khẩu; mật khẩu mẫu ở môi trường phát triển là `Demo@12345` (đổi bằng `SEED_PASSWORD`). Các script thử gọi API phải gửi `{ "email", "password" }` tới `POST /api/v1/auth/login`.
 
 | Vai trò | Email đăng nhập | Mô tả & Thẩm quyền |
 |---|---|---|
