@@ -8,7 +8,11 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "seed": "node --experimental-strip-types prisma/seed.ts",
-    "admin:create": "node --experimental-strip-types prisma/admin-user.ts"
+    "admin:create": "node --experimental-strip-types prisma/admin-user.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:baseline": "prisma migrate resolve --applied 20261021000000_init",
+    "db:push": "prisma db push"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
